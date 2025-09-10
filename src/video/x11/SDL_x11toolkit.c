@@ -103,6 +103,17 @@ typedef struct SDL_ToolkitMenuControlX11
     XColor xcolor_check_bg;
 } SDL_ToolkitMenuControlX11;
 
+typedef struct SDL_ToolkitEntryControlX11
+{
+    SDL_ToolkitControlX11 parent;
+
+	char *buffer;
+	size_t sz;
+	size_t cur;
+	int text_x;
+	int text_y;
+} SDL_ToolkitEntryControlX11;
+
 /* Font for icon control */
 static const char *g_IconFont = "-*-*-bold-r-normal-*-%d-*-*-*-*-*-iso8859-1[33 88 105]";
 #define G_ICONFONT_SIZE 18
@@ -487,6 +498,27 @@ static void X11Toolkit_GetTextWidthHeight(SDL_ToolkitWindowX11 *data, const char
     }
 }
 
+static int X11Toolkit_GetMaximumTextHeight(SDL_ToolkitWindowX11 *data, int *asc)
+{
+#ifdef X_HAVE_UTF8_STRING
+    if (data->utf8) {
+        XFontSetExtents *extents;
+        int ascent;
+        int descent;
+        
+        extents = X11_XExtentsOfFontSet(data->font_set);
+        ascent = -extents->max_logical_extent.y;
+        descent = extents->max_logical_extent.height - ascent;
+		*asc = ascent;
+		return ascent - descent;
+    } else
+#endif
+    {
+		*asc = data->font_struct->ascent;
+		return data->font_struct->ascent - data->font_struct->descent;
+    }
+}
+
 SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_ToolkitWindowX11 *tkparent, SDL_ToolkitWindowModeX11 mode, const SDL_MessageBoxColor *colorhints, bool create_new_display)
 {
     SDL_ToolkitWindowX11 *window;
@@ -653,10 +685,10 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
     window->xcolor_pressed.green = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].green - 12500, 0, 65535);
     window->xcolor_pressed.blue = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].blue - 12500, 0, 65535);
 
-    window->xcolor_disabled_text.flags = DoRed|DoGreen|DoBlue;
-    window->xcolor_disabled_text.red = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].red + 19500, 0, 65535);
-    window->xcolor_disabled_text.green = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].green + 19500, 0, 65535);
-    window->xcolor_disabled_text.blue = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].blue + 19500, 0, 65535);
+    window->xcolor_light_control_bg.flags = DoRed|DoGreen|DoBlue;
+    window->xcolor_light_control_bg.red = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].red + 19500, 0, 65535);
+    window->xcolor_light_control_bg.green = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].green + 19500, 0, 65535);
+    window->xcolor_light_control_bg.blue = SDL_clamp(window->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].blue + 19500, 0, 65535);
 
     /* Screen */
     window->parent = parent;
@@ -672,7 +704,7 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
         window->visual = parent->internal->visual;
         window->cmap = parent->internal->colormap;
         X11_GetVisualInfoFromVisual(window->display, window->visual, &window->vi);
-          window->depth = window->vi.depth;    
+        window->depth = window->vi.depth;    
     } else {
         window->visual = DefaultVisual(window->display, window->screen); 
         window->cmap = DefaultColormap(window->display, window->screen);
@@ -689,6 +721,7 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
     X11_XAllocColor(window->display, window->cmap, &window->xcolor_bevel_d);        
     X11_XAllocColor(window->display, window->cmap, &window->xcolor_pressed);    
     X11_XAllocColor(window->display, window->cmap, &window->xcolor_disabled_text);        
+    X11_XAllocColor(window->display, window->cmap, &window->xcolor_light_control_bg);        
 
     /* Control list */
     window->has_focus = false;
@@ -697,6 +730,10 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
     window->dyn_controls_sz = 0;
     window->fiddled_control = NULL;
     window->dyn_controls = NULL;
+	window->focused_control = NULL;
+    window->dyn_controls_non_capturing_sz = 0;
+    window->dyn_controls_non_capturing = NULL;
+    
 
     /* Menu windows */
     window->popup_windows = NULL;
@@ -724,6 +761,15 @@ static void X11Toolkit_AddControlToWindow(SDL_ToolkitWindowX11 *window, SDL_Tool
         }
         window->dyn_controls[window->dyn_controls_sz - 1] = control;        
     }
+    if (control->dynamic && !control->captures_lr_arrows) {
+        window->dyn_controls_non_capturing_sz++;
+        if (window->dyn_controls_non_capturing_sz == 1) {
+            window->dyn_controls_non_capturing = (struct SDL_ToolkitControlX11 **)SDL_malloc(sizeof(struct SDL_ToolkitControlX11 *));
+        } else {
+            window->dyn_controls_non_capturing = (struct SDL_ToolkitControlX11 **)SDL_realloc(window->dyn_controls_non_capturing, sizeof(struct SDL_ToolkitControlX11 *) * window->dyn_controls_non_capturing_sz);        
+        }
+        window->dyn_controls_non_capturing[window->dyn_controls_non_capturing_sz - 1] = control;        
+    }    
 
     /* If selected, set currently focused control to it */
     if (control->selected) {
@@ -1194,10 +1240,21 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
 
     data->draw = false;
     data->e = e;
-
+	
+	if (data->focused_control) {
+		if (data->focused_control->func_process_event) {
+			if (data->focused_control->func_process_event(data->focused_control)) {
+				return;
+			}		
+		}
+	}
+	
     switch (e->type) {
         case Expose:
             data->draw = true;
+            break;
+        case MappingNotify:
+            X11_XRefreshKeyboardMapping(&e->xmapping);
             break;
         case ClientMessage:
             if (e->xclient.message_type == data->wm_protocols &&
@@ -1336,7 +1393,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
                         data->key_control_enter->func_on_state_change(data->key_control_enter);
                     }
                 }
-            } else if (key == XK_Tab || key == XK_Left || key == XK_Right) {
+            } else if (key == XK_Tab) {
                 if (data->focused_control) {
                     data->focused_control->selected = false;
                 }
@@ -1345,19 +1402,37 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
                     if (data->dyn_controls[data->ev_i] == data->focused_control) {
                         int next_index;
 
+						next_index = data->ev_i + 1;
+                        if ((next_index >= data->dyn_controls_sz) || (next_index < 0)) {
+							next_index = 0;
+                        }
+                        data->focused_control = data->dyn_controls[next_index];
+                        data->focused_control->selected = true;
+                        break;
+                    }
+                }
+            } else if (key == XK_Left || key == XK_Right) {
+                if (data->focused_control) {
+                    data->focused_control->selected = false;
+                }
+                data->draw = true;
+                for (data->ev_i = 0; data->ev_i < data->dyn_controls_non_capturing_sz; data->ev_i++) {
+                    if (data->dyn_controls_non_capturing[data->ev_i] == data->focused_control) {
+                        int next_index;
+
                         if (key == XK_Left) {
                             next_index = data->ev_i - 1;
                         } else {
                             next_index = data->ev_i + 1;
                         }
-                        if ((next_index >= data->dyn_controls_sz) || (next_index < 0)) {
+                        if ((next_index >= data->dyn_controls_non_capturing_sz) || (next_index < 0)) {
                             if (key == XK_Right || key == XK_Left) {
                                 next_index = data->ev_i;
                             } else {
                                 next_index = 0;
                             }
                         }
-                        data->focused_control = data->dyn_controls[next_index];
+                        data->focused_control = data->dyn_controls_non_capturing[next_index];
                         data->focused_control->selected = true;
                         break;
                     }
@@ -1875,7 +1950,10 @@ void X11Toolkit_DestroyWindow(SDL_ToolkitWindowX11 *data) {
     if (data->dyn_controls) {
         SDL_free(data->dyn_controls);
     }
-
+    if (data->dyn_controls_non_capturing) {
+        SDL_free(data->dyn_controls_non_capturing);
+    }
+    
     if (data->popup_windows) {
         SDL_ListClear(&data->popup_windows);
     }
@@ -2082,6 +2160,145 @@ int X11Toolkit_GetIconControlCharY(SDL_ToolkitControlX11 *control) {
 
 void X11Toolkit_SignalWindowClose(SDL_ToolkitWindowX11 *data) {
     data->close = true;
+}
+
+static void X11Toolkit_CalculateEntryControl(SDL_ToolkitControlX11 *control) {
+    SDL_ToolkitEntryControlX11 *entry_control;
+	int asc;
+	
+    entry_control = (SDL_ToolkitEntryControlX11 *)control;
+	control->rect.w = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale;
+	control->rect.h = X11Toolkit_GetMaximumTextHeight(control->window, &asc) + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale;	
+	control->rect.x = 0;
+	control->rect.y = 0;
+	entry_control->text_x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale;
+	entry_control->text_y = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + asc;
+    if (control->window->utf8) {
+        entry_control->text_y -= 2 * control->window->iscale;
+    } else {
+        entry_control->text_y -= 4 * control->window->iscale;
+    }
+}
+
+static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
+    SDL_ToolkitEntryControlX11 *entry_control;
+
+    entry_control = (SDL_ToolkitEntryControlX11 *)control;
+    
+    /* Draw bevel */
+    X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_l2.pixel);
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x, control->rect.y, control->rect.w, control->rect.h);
+
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x, control->rect.y, control->rect.w - (1* control->window->iscale), control->rect.h - (1* control->window->iscale));
+
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_l1.pixel);
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (1* control->window->iscale), control->rect.y + (1* control->window->iscale), control->rect.w - (2* control->window->iscale), control->rect.h - (2* control->window->iscale));
+
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_d.pixel);
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (1* control->window->iscale), control->rect.y + (1* control->window->iscale), control->rect.w - (3* control->window->iscale), control->rect.h - (3* control->window->iscale));
+
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_bg.pixel);
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (2* control->window->iscale), control->rect.y + (2* control->window->iscale), control->rect.w - (4* control->window->iscale), control->rect.h - (4* control->window->iscale));
+
+	/* Draw text */
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
+#ifdef X_HAVE_UTF8_STRING
+	if (control->window->utf8) {
+		X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
+                                control->rect.x + entry_control->text_x,
+                                control->rect.y + entry_control->text_y,
+                                entry_control->buffer, entry_control->sz);
+	} else
+#endif
+	{
+		X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
+                                control->rect.x + entry_control->text_x,
+                                control->rect.y + entry_control->text_y,
+                                entry_control->buffer, entry_control->sz);
+	}
+}
+
+
+static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control) {
+    SDL_ToolkitEntryControlX11 *entry_control;
+
+    entry_control = (SDL_ToolkitEntryControlX11 *)control;
+    if (entry_control->buffer) {
+		SDL_free(entry_control->buffer);
+	}
+	SDL_free(entry_control);
+}
+
+void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry, char *str, int sz) {
+	
+	if (entry->buffer) {
+		char *old_buffer;
+
+		old_buffer = SDL_strdup(entry->buffer);
+		entry->sz += sz;
+		entry->buffer = SDL_realloc(entry->buffer, entry->sz + 1);
+		strncpy(entry->buffer,old_buffer,entry->cur);
+		entry->buffer[entry->cur] = '\0';
+		strncat(entry->buffer, str, sz);
+		strcat(entry->buffer,old_buffer+entry->cur);
+		SDL_free(old_buffer);
+		entry->cur++;
+	} else {
+		entry->sz = sz;
+		entry->buffer = SDL_malloc(entry->sz+1);
+		SDL_strlcpy(entry->buffer, str, entry->sz+1);
+		entry->cur++;
+	} 
+}
+
+static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
+    SDL_ToolkitEntryControlX11 *entry_control;
+    char str[64];
+	int sz;
+	
+    entry_control = (SDL_ToolkitEntryControlX11 *)control;
+    switch (control->window->e->type) {
+        case KeyPress:
+			sz = X11_XLookupString(&control->window->e->xkey, str, sizeof(str), NULL, NULL);
+			X11Toolkit_InjectStringIntoEntryControlBuffer(entry_control, str, sz);
+            control->window->draw = true;
+	}
+   
+	return false;
+}
+
+SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window) {
+    SDL_ToolkitEntryControlX11 *control;
+    SDL_ToolkitControlX11 *base_control;
+
+    control = (SDL_ToolkitEntryControlX11 *)SDL_malloc(sizeof(SDL_ToolkitEntryControlX11));
+    base_control = (SDL_ToolkitControlX11 *)control;
+    if (!control) {
+        SDL_SetError("Unable to allocate entry control structure");
+        return NULL;
+    }
+    
+    base_control->window = window;
+    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+    base_control->func_calc_size = X11Toolkit_CalculateEntryControl;
+    base_control->func_draw = X11Toolkit_DrawEntryControl;
+    base_control->func_on_state_change =  NULL;
+    base_control->func_free = X11Toolkit_DestroyEntryControl;
+    base_control->func_on_scale_change = NULL;
+    base_control->func_process_event = X11Toolkit_ProcessEntryControlEvent;
+    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+    base_control->selected = true;
+    base_control->dynamic = true;    
+    base_control->is_default_enter = false;  
+    base_control->is_default_esc = false;  
+    base_control->captures_lr_arrows = true;
+	control->buffer = NULL;
+	control->sz = 0;
+	control->cur = 0;
+	X11Toolkit_CalculateEntryControl(base_control);
+    X11Toolkit_AddControlToWindow(window, base_control);       
+    return base_control;
 }
 
 #endif // SDL_VIDEO_DRIVER_X11
