@@ -37,6 +37,7 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
     control = X11Toolkit_CreateEntryControl(window);
     control->rect.x = control->rect.y = 32;
     control->rect.w = 100;
+    X11Toolkit_NotifyControlOfSizeChange(control);
 	X11Toolkit_CreateWindowRes(window, 320, 240, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
     X11Toolkit_DestroyWindow(window);

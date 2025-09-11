@@ -110,8 +110,12 @@ typedef struct SDL_ToolkitEntryControlX11
 	char *buffer;
 	size_t sz;
 	size_t cur;
+	int cur_x;
 	int text_x;
 	int text_y;
+	int text_reserved_w;
+	ssize_t draw_sz;
+	size_t draw_buffer_offset;
 } SDL_ToolkitEntryControlX11;
 
 /* Font for icon control */
@@ -477,14 +481,18 @@ static void X11Toolkit_GetTextWidthHeight(SDL_ToolkitWindowX11 *data, const char
 {
 #ifdef X_HAVE_UTF8_STRING
     if (data->utf8) {
-        XFontSetExtents *extents;
         XRectangle overall_ink, overall_logical;
-        extents = X11_XExtentsOfFontSet(data->font_set);
+   
+        if (font_ascent || font_descent) {
+			XFontSetExtents *extents;
+			extents = X11_XExtentsOfFontSet(data->font_set);
+			*font_ascent = -extents->max_logical_extent.y;
+			*font_descent = extents->max_logical_extent.height - *font_ascent;
+		}
+		
         X11_Xutf8TextExtents(data->font_set, str, nbytes, &overall_ink, &overall_logical);
         *pwidth = overall_logical.width;
         *pheight = overall_logical.height;
-        *font_ascent = -extents->max_logical_extent.y;
-        *font_descent = extents->max_logical_extent.height - *font_ascent;
     } else
 #endif
     {
@@ -2167,10 +2175,7 @@ static void X11Toolkit_CalculateEntryControl(SDL_ToolkitControlX11 *control) {
 	int asc;
 	
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
-	control->rect.w = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale;
 	control->rect.h = X11Toolkit_GetMaximumTextHeight(control->window, &asc) + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale;	
-	control->rect.x = 0;
-	control->rect.y = 0;
 	entry_control->text_x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale;
 	entry_control->text_y = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + asc;
     if (control->window->utf8) {
@@ -2178,11 +2183,13 @@ static void X11Toolkit_CalculateEntryControl(SDL_ToolkitControlX11 *control) {
     } else {
         entry_control->text_y -= 4 * control->window->iscale;
     }
+	entry_control->text_reserved_w = control->rect.w - SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale;
 }
 
 static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
     SDL_ToolkitEntryControlX11 *entry_control;
-
+	size_t sz;
+	
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
     
     /* Draw bevel */
@@ -2198,24 +2205,30 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
 	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_d.pixel);
 	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (1* control->window->iscale), control->rect.y + (1* control->window->iscale), control->rect.w - (3* control->window->iscale), control->rect.h - (3* control->window->iscale));
 
-	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_bg.pixel);
-	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (2* control->window->iscale), control->rect.y + (2* control->window->iscale), control->rect.w - (4* control->window->iscale), control->rect.h - (4* control->window->iscale));
+	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_bg.pixel); 
+	X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (2* control->window->iscale), control->rect.y + (2* control->window->iscale),  control->rect.w - (4* control->window->iscale), control->rect.h - (4* control->window->iscale));
 
 	/* Draw text */
+	if (entry_control->draw_sz != -1) {
+		sz = entry_control->draw_sz;
+	} else {
+		sz = entry_control->sz;
+	}
+	
 	X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
 #ifdef X_HAVE_UTF8_STRING
 	if (control->window->utf8) {
 		X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
                                 control->rect.x + entry_control->text_x,
                                 control->rect.y + entry_control->text_y,
-                                entry_control->buffer, entry_control->sz);
+                                entry_control->buffer + entry_control->draw_buffer_offset, sz);
 	} else
 #endif
 	{
 		X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
                                 control->rect.x + entry_control->text_x,
                                 control->rect.y + entry_control->text_y,
-                                entry_control->buffer, entry_control->sz);
+                                entry_control->buffer + entry_control->draw_buffer_offset, sz);
 	}
 }
 
@@ -2231,6 +2244,16 @@ static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control) {
 }
 
 void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry, char *str, int sz) {
+	SDL_ToolkitControlX11 *base_control;
+	char *pre_cur;
+	size_t old_sz;
+	
+	base_control = (SDL_ToolkitControlX11 *)entry;
+	if (sz <= 0) {
+		return;
+	}
+	
+	old_sz = entry->sz;
 	
 	if (entry->buffer) {
 		char *old_buffer;
@@ -2250,6 +2273,26 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
 		SDL_strlcpy(entry->buffer, str, entry->sz+1);
 		entry->cur++;
 	} 
+	
+	
+	pre_cur = SDL_calloc(entry->cur, sizeof(char));
+	strncpy(pre_cur, entry->buffer, entry->cur);
+#ifdef X_HAVE_UTF8_STRING
+	if (base_control->window->utf8) {
+		int h;
+		
+		X11Toolkit_GetTextWidthHeight(base_control->window, pre_cur, entry->cur, &entry->cur_x, &h, NULL, NULL);
+	} else
+#endif
+	{
+		entry->cur_x = X11_XTextWidth(base_control->window->font_struct, pre_cur, entry->cur);
+	}
+	SDL_free(pre_cur);
+	
+	if (entry->cur_x >= entry->text_reserved_w && entry->draw_sz == -1) {
+		entry->draw_sz = entry->sz - (entry->cur - 1);
+		entry->draw_buffer_offset = entry->sz - entry->draw_sz;
+	}
 }
 
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
@@ -2296,6 +2339,8 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *windo
 	control->buffer = NULL;
 	control->sz = 0;
 	control->cur = 0;
+	control->draw_sz = -1;
+	control->draw_buffer_offset = 0;
 	X11Toolkit_CalculateEntryControl(base_control);
     X11Toolkit_AddControlToWindow(window, base_control);       
     return base_control;
