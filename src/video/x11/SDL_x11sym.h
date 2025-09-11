@@ -59,6 +59,7 @@ SDL_X11_SYM(int,XDrawRectangle,(Display* a,Drawable b,GC c,int d,int e,unsigned 
 SDL_X11_SYM(int,XFillArc,(Display* a,Drawable b,GC c,int d,int e,unsigned int f,unsigned int g, int h, int i))
 SDL_X11_SYM(char*,XDisplayName,(_Xconst char* a))
 SDL_X11_SYM(int,XDrawString,(Display* a,Drawable b,GC c,int d,int e,_Xconst char* f,int g))
+SDL_X11_SYM(int,XDrawLine,(Display *a, Drawable b, GC c, int d, int e, int f, int g))
 SDL_X11_SYM(int,XEventsQueued,(Display* a,int b))
 SDL_X11_SYM(int,XFillRectangle,(Display* a,Drawable b,GC c,int d,int e,unsigned int f,unsigned int g))
 SDL_X11_SYM(Bool,XFilterEvent,(XEvent *event,Window w))
