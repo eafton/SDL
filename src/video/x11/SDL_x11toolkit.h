@@ -96,6 +96,12 @@ typedef struct SDL_ToolkitWindowX11
 #endif
     bool utf8;
 
+#ifdef X_HAVE_UTF8_STRING
+	/* IME */
+	XIM im;
+	XIC ic;
+#endif
+
     /* Atoms */
     Atom wm_protocols;
     Atom wm_delete_message;
@@ -126,6 +132,7 @@ typedef struct SDL_ToolkitWindowX11
     XColor xcolor_bevel_d;
     XColor xcolor_pressed;
     XColor xcolor_disabled_text;
+    XColor xcolor_light_control_bg;
 
     /* Control list */
     bool has_focus;
@@ -135,6 +142,8 @@ typedef struct SDL_ToolkitWindowX11
     size_t controls_sz;  
     struct SDL_ToolkitControlX11 **dyn_controls;
     size_t dyn_controls_sz;
+    struct SDL_ToolkitControlX11 **dyn_controls_non_capturing;
+    size_t dyn_controls_non_capturing_sz;
 
     /* User callbacks */
     void *cb_data;
@@ -176,6 +185,7 @@ typedef struct SDL_ToolkitControlX11
     bool is_default_enter;
     bool is_default_esc;
 	bool do_size;
+	bool captures_lr_arrows;
 	
     /* User data */
     void *data;
@@ -186,6 +196,7 @@ typedef struct SDL_ToolkitControlX11
     void (*func_on_scale_change)(struct SDL_ToolkitControlX11 *);
     void (*func_on_state_change)(struct SDL_ToolkitControlX11 *);
     void (*func_free)(struct SDL_ToolkitControlX11 *);
+    bool (*func_process_event)(struct SDL_ToolkitControlX11 *); /* Custom event processing, used by the entry control, only called on selected controls, returns true to block*/
 } SDL_ToolkitControlX11;
 
 typedef struct SDL_ToolkitMenuItemX11
@@ -225,6 +236,9 @@ extern int X11Toolkit_GetIconControlCharY(SDL_ToolkitControlX11 *control);
 
 /* LABEL CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateLabelControl(SDL_ToolkitWindowX11 *window, char *utf8);
+
+/* ENTRY CONTROL FUNCTIONS */
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window);
 
 /* BUTTON CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);

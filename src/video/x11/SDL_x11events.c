@@ -995,7 +995,7 @@ static bool IsHighLatin1(const char *string, int length)
     return false;
 }
 
-static int XLookupStringAsUTF8(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return, XComposeStatus *status_in_out)
+int X11_XLookupStringAsUTF8(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return, XComposeStatus *status_in_out)
 {
     int result = X11_XLookupString(event_struct, buffer_return, bytes_buffer, keysym_return, status_in_out);
     if (IsHighLatin1(buffer_return, result)) {
@@ -1085,10 +1085,10 @@ void X11_HandleKeyEvent(SDL_VideoDevice *_this, SDL_WindowData *windowdata, SDL_
                 text_length = X11_Xutf8LookupString(windowdata->ic, &xevent->xkey, text, sizeof(text) - 1,
                                       &keysym, &status);
             } else {
-                text_length = XLookupStringAsUTF8(&xevent->xkey, text, sizeof(text) - 1, &keysym, NULL);
+                text_length = X11_XLookupStringAsUTF8(&xevent->xkey, text, sizeof(text) - 1, &keysym, NULL);
             }
 #else
-            text_length = XLookupStringAsUTF8(&xevent->xkey, text, sizeof(text) - 1, &keysym, NULL);
+            text_length = X11_XLookupStringAsUTF8(&xevent->xkey, text, sizeof(text) - 1, &keysym, NULL);
 #endif
         }
     }

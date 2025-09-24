@@ -37,5 +37,6 @@ extern SDL_WindowData *X11_FindWindow(SDL_VideoDevice *_this, Window window);
 extern bool X11_ProcessHitTest(SDL_VideoDevice *_this, SDL_WindowData *data, const float x, const float y, bool force_new_result);
 extern bool X11_TriggerHitTestAction(SDL_VideoDevice *_this, SDL_WindowData *data, const float x, const float y);
 extern bool X11_IsWheelEvent(int button, int *xticks, int *yticks);
+extern int X11_XLookupStringAsUTF8(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return, XComposeStatus *status_in_out);
 
 #endif // SDL_x11events_h_
