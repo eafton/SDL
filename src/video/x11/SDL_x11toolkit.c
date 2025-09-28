@@ -106,6 +106,11 @@ typedef struct SDL_ToolkitMenuControlX11
     XColor xcolor_check_bg;
 } SDL_ToolkitMenuControlX11;
 
+typedef struct SDL_ToolkitEntryControlPageX11
+{
+
+} SDL_ToolkitEntryControlPageX11;
+
 typedef struct SDL_ToolkitEntryControlX11
 {
     SDL_ToolkitControlX11 parent;
@@ -118,13 +123,12 @@ typedef struct SDL_ToolkitEntryControlX11
     int text_y;
     int text_reserved_w;
     int text_a;
-    ssize_t draw_sz;
-    size_t draw_buffer_offset;
     int cur_draw_y1;
     int cur_draw_y2;
     bool cur_blink;
-    SDL_TimerID cur_blink_timer;
-    int page;
+    SDL_TimerID cur_blink_timer;    
+    SDL_ListNode *pages;
+    SDL_ToolkitEntryControlPageX11 *current_page;
 } SDL_ToolkitEntryControlX11;
 
 /* Font for icon control */
