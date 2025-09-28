@@ -164,6 +164,10 @@ typedef struct SDL_ToolkitWindowX11
     bool draw;
     bool close;
     long event_mask;
+    
+    /* Cursors */
+    Cursor cursor_normal;
+    Cursor cursor_text_edit;
 } SDL_ToolkitWindowX11;
 
 typedef enum SDL_ToolkitControlStateX11
@@ -186,7 +190,8 @@ typedef struct SDL_ToolkitControlX11
     bool is_default_esc;
 	bool do_size;
 	bool captures_lr_arrows;
-	
+	bool special_focus;
+
     /* User data */
     void *data;
 
@@ -196,7 +201,7 @@ typedef struct SDL_ToolkitControlX11
     void (*func_on_scale_change)(struct SDL_ToolkitControlX11 *);
     void (*func_on_state_change)(struct SDL_ToolkitControlX11 *);
     void (*func_free)(struct SDL_ToolkitControlX11 *);
-    bool (*func_process_event)(struct SDL_ToolkitControlX11 *); /* Custom event processing, used by the entry control, only called on selected controls, returns true to block*/
+    bool (*func_process_event)(struct SDL_ToolkitControlX11 *); /* Custom event processing, used by the entry control, only called on selected controls, returns true to block */
 } SDL_ToolkitControlX11;
 
 typedef struct SDL_ToolkitMenuItemX11

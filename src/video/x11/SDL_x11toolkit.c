@@ -31,6 +31,7 @@
 #include "SDL_x11modes.h"
 #include "xsettings-client.h"
 #include <X11/X.h>
+#include <X11/cursorfont.h>
 #include <X11/keysym.h>
 #include <locale.h>
 
@@ -806,7 +807,11 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
     }
 #endif
 
-    return window;
+	/* Cursors */
+	window->cursor_normal = X11_XCreateFontCursor(window->display, XC_left_ptr);
+ 	window->cursor_text_edit = X11_XCreateFontCursor(window->display, XC_xterm);
+ 	
+	return window;
 }
 
 static void X11Toolkit_AddControlToWindow(SDL_ToolkitWindowX11 *window, SDL_ToolkitControlX11 *control) {
@@ -909,11 +914,13 @@ bool X11Toolkit_CreateWindowRes(SDL_ToolkitWindowX11 *data, int w, int h, int cx
         return SDL_SetError("Couldn't create X window");
     }
     
+    X11_XDefineCursor(display, data->window, data->cursor_normal);
+    
 #ifdef X_HAVE_UTF8_STRING
     if (data->utf8 && data->im) {
         unsigned long ic_mask;
         
-        data->ic = X11_XCreateIC(data->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, data->window, NULL);
+        data->ic = X11_XCreateIC(data->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, data->window, XNFocusWindow, data->window, NULL);
         X11_XGetICValues(data->ic, XNFilterEvents, &ic_mask, NULL);
         X11_XSelectInput(display, data->window, ic_mask | data->event_mask);
         X11_XSetICFocus(data->ic);
@@ -1371,17 +1378,34 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
                 }
             }
 
-            if ((e->xbutton.button == Button1) && (data->fiddled_control)) {
+            if (e->xbutton.button == Button1) {
                 SDL_ToolkitControlX11 *control;
 
-                control = X11Toolkit_GetControlMouseIsOn(data, SDL_lroundf((e->xbutton.x/ data->ev_scale)* data->ev_iscale), SDL_lroundf((e->xbutton.y/ data->ev_scale)* data->ev_iscale));
-                if (data->fiddled_control == control) {
+				data->draw = true;
+                control = X11Toolkit_GetControlMouseIsOn(data, SDL_lroundf((e->xbutton.x/ data->ev_scale)* data->ev_iscale), SDL_lroundf((e->xbutton.y/ data->ev_scale)* data->ev_iscale));		
+				if (control) {
+					if (control->special_focus) {
+						if (data->focused_control) {
+							data->focused_control->selected = false;
+						}
+						data->focused_control = control;
+						data->focused_control->selected = true;
+					}
+				} else {
+					if (data->focused_control) {
+						if (data->focused_control->special_focus) {
+							data->focused_control->selected = false;
+							data->focused_control = NULL;
+						}
+					}	
+				}
+		
+				if (data->fiddled_control == control && data->fiddled_control) {
                     data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
                     if (data->fiddled_control->func_on_state_change) {
                         data->fiddled_control->func_on_state_change(data->fiddled_control);
                     }
                     data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-                    data->draw = true;
                 }
             }
             break;
@@ -1438,7 +1462,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
             } else if (key == XK_Tab) {
                 if (data->focused_control) {
                     data->focused_control->selected = false;
-                }
+                } 
                 data->draw = true;
                 for (data->ev_i = 0; data->ev_i < data->dyn_controls_sz; data->ev_i++) {
                     if (data->dyn_controls[data->ev_i] == data->focused_control) {
@@ -1453,6 +1477,10 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e) {
                         break;
                     }
                 }
+                if (!data->focused_control && data->dyn_controls_sz > 0) {
+					data->focused_control = data->dyn_controls[0];
+                    data->focused_control->selected = true;
+                } 
             } else if (key == XK_Left || key == XK_Right) {
                 if (data->focused_control) {
                     data->focused_control->selected = false;
@@ -1635,7 +1663,8 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateIconControl(SDL_ToolkitWindowX11 *window
     base_control->dynamic = false;
     base_control->is_default_enter = false;
     base_control->is_default_esc = false;
-    base_control->captures_lr_arrows = false;
+	base_control->special_focus = false;
+	base_control->captures_lr_arrows = false;
     control->flags = flags;
 
     /* Load font */
@@ -1879,6 +1908,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *wind
     base_control->is_default_enter = false;
     base_control->captures_lr_arrows = false;
     base_control->is_default_esc = false;
+    base_control->special_focus = false;
     if (data->flags & SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT) {
         base_control->is_default_esc = true;
     }
@@ -1989,6 +2019,9 @@ void X11Toolkit_DestroyWindow(SDL_ToolkitWindowX11 *data) {
     }
 
     X11_XFreeGC(data->display, data->ctx);
+
+	X11_XFreeCursor(data->display, data->cursor_normal);
+	X11_XFreeCursor(data->display, data->cursor_text_edit);
 
     if (data->display) {
         if (data->window != None) {
@@ -2105,6 +2138,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateLabelControl(SDL_ToolkitWindowX11 *windo
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->selected = false;
     base_control->dynamic = false;
+    base_control->special_focus = false;
     base_control->rect.w = 0;
     base_control->rect.h = 0;
     base_control->is_default_enter = false;
@@ -2330,12 +2364,11 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
     }
     entry->cur += sz;
 
-    pre_cur = SDL_calloc(entry->cur + 1, sizeof(char));  
+  /*  pre_cur = SDL_calloc(entry->cur + 1, sizeof(char));  
 	if (entry->cur > 0 && entry->cur <= entry->sz) {
         strncpy(pre_cur, entry->buffer, entry->cur);
     }    
     pre_cur[entry->cur] = '\0';
-
 #ifdef X_HAVE_UTF8_STRING
     if (base_control->window->utf8) {
         int h;
@@ -2350,13 +2383,13 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
         entry->cur_x = X11_XTextWidth(base_control->window->font_struct,
                                       pre_cur, entry->cur);
     }
-    SDL_free(pre_cur);
+    SDL_free(pre_cur);*/
 
     X11Toolkit_EnsureEntryControlCursorVisible(base_control);
 }
 
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
-    /* TODO: Selections, clipboard */
+    /* TODO: Selections, clipboard, working scolling */
     SDL_ToolkitEntryControlX11 *entry_control;
     char *pre_cur;
     int sz;
@@ -2499,6 +2532,28 @@ static Uint32 X11Toolkit_BlinkEntryControlCursor(void *userdata, SDL_TimerID tim
     return interval;
 }
 
+static void X11Toolkit_OnEntryControlStateChange(SDL_ToolkitControlX11 *base_control) {
+	switch (base_control->state) {
+		case SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL:
+			X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_normal);
+			break;
+		case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
+		case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD:
+		    X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
+			break;
+		case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
+		    X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
+			if (base_control->window->focused_control) {
+				base_control->window->focused_control->selected = false;
+			}
+			base_control->selected = true;
+			base_control->window->focused_control = base_control;
+			break;
+		default:
+			break;
+    }
+}
+
 SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window) {
     SDL_ToolkitEntryControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
@@ -2514,16 +2569,17 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *windo
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->func_calc_size = X11Toolkit_CalculateEntryControl;
     base_control->func_draw = X11Toolkit_DrawEntryControl;
-    base_control->func_on_state_change =  NULL;
+    base_control->func_on_state_change =  X11Toolkit_OnEntryControlStateChange;
     base_control->func_free = X11Toolkit_DestroyEntryControl;
     base_control->func_on_scale_change = NULL;
     base_control->func_process_event = X11Toolkit_ProcessEntryControlEvent;
-    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+	base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->selected = true;
     base_control->dynamic = true;
     base_control->is_default_enter = false;
     base_control->is_default_esc = false;
     base_control->captures_lr_arrows = true;
+    base_control->special_focus = true;
     control->buffer = NULL;
     control->sz = 0;
     control->cur = 0;
