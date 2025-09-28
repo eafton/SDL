@@ -108,7 +108,8 @@ typedef struct SDL_ToolkitMenuControlX11
 
 typedef struct SDL_ToolkitEntryControlPageX11
 {
-
+	size_t offset;
+	size_t sz;
 } SDL_ToolkitEntryControlPageX11;
 
 typedef struct SDL_ToolkitEntryControlX11
@@ -117,7 +118,8 @@ typedef struct SDL_ToolkitEntryControlX11
 
     char *buffer;
     size_t sz;
-    size_t cur;
+	size_t old_sz;
+	size_t cur;
     int cur_x;
     int text_x;
     int text_y;
@@ -127,8 +129,9 @@ typedef struct SDL_ToolkitEntryControlX11
     int cur_draw_y2;
     bool cur_blink;
     SDL_TimerID cur_blink_timer;    
-    SDL_ListNode *pages;
-    SDL_ToolkitEntryControlPageX11 *current_page;
+    SDL_ToolkitEntryControlPageX11 *pages;
+    size_t pages_sz;
+    size_t current_page;
 } SDL_ToolkitEntryControlX11;
 
 /* Font for icon control */
@@ -2212,6 +2215,9 @@ static void X11Toolkit_CalculateEntryControl(SDL_ToolkitControlX11 *control) {
 
 static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
     SDL_ToolkitEntryControlX11 *entry_control;
+	Region clip;
+	Region clip_entry;
+	XRectangle clip_rect;
     size_t sz;
     int cursor_x;
 	int ascent;
@@ -2242,35 +2248,51 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
     }
     
     /* Draw text */
-    if (entry_control->draw_sz != -1) {
-        sz = entry_control->draw_sz;
-    } else {
-        sz = entry_control->sz;
-    }
-    
     ascent = 0;
     if (entry_control->buffer) {
-		int w;
-		int h;
-		int d;
+		int width;
+		int height;
+		int descent;
 		
-		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &w, &h, &ascent, &d);
+		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &width, &height, &ascent, &descent);
 	}
     
+	clip_rect.x = 0;
+    clip_rect.y = 0;
+	clip = X11_XCreateRegion();
+	clip_entry = X11_XCreateRegion();
+	if (control->window->pixmap) {
+		clip_rect.width = control->window->pixmap_width;
+		clip_rect.height = control->window->pixmap_height;
+    } else {
+		clip_rect.width = control->window->window_width;
+		clip_rect.height = control->window->window_height;
+    }
+    X11_XUnionRectWithRegion(&clip_rect, clip, clip);
+	clip_rect.x = control->rect.x;
+    clip_rect.y = control->rect.y;
+    clip_rect.width = control->rect.w;
+    clip_rect.height = control->rect.h;
+	X11_XUnionRectWithRegion(&clip_rect, clip_entry, clip_entry);
+	X11_XSubtractRegion(clip, clip_entry, clip);
+	//X11_XSetRegion(control->window->display, control->window->ctx, clip);
 #ifdef X_HAVE_UTF8_STRING
     if (control->window->utf8) {
         X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
                                 control->rect.x + entry_control->text_x,
                                 control->rect.y + entry_control->text_y + ascent,
-                                entry_control->buffer + entry_control->draw_buffer_offset, sz);
+                                entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz);
     } else
 #endif
     {
         X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
                                 control->rect.x + entry_control->text_x,
                                 control->rect.y + entry_control->text_y + ascent,
-                                entry_control->buffer + entry_control->draw_buffer_offset, sz);
+                                entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz);
     }
+	X11_XSetClipMask(control->window->display, control->window->ctx, None);
+    X11_XDestroyRegion(clip);
+    X11_XDestroyRegion(clip_entry);
 }
 
 
@@ -2293,12 +2315,29 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
 	int descent;
 	
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
-   
-    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->cur, &entry_control->cur_x, &height, &ascent, &descent);
-   
+    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
     if (entry_control->cur_x > entry_control->text_reserved_w) {
-		
-    }
+		if (entry_control->current_page + 1 == entry_control->pages_sz) {
+			entry_control->pages_sz++;
+			entry_control->current_page++;
+			entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
+			entry_control->pages[entry_control->current_page].sz = entry_control->sz - entry_control->old_sz;
+			entry_control->pages[entry_control->current_page].offset = entry_control->pages[entry_control->current_page-1].sz + entry_control->pages[entry_control->current_page-1].offset;
+			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
+		} else {
+			entry_control->current_page++;
+			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
+		}
+   } else {
+		entry_control->pages[entry_control->current_page].sz += entry_control->sz - entry_control->old_sz;
+		if (!entry_control->cur_x) {
+			entry_control->current_page--;
+			if (entry_control->current_page < 0) {
+				entry_control->current_page = 0;
+			}
+			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
+		} 
+   }
 } 
 
 void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry, char *str, int sz) {
@@ -2321,7 +2360,7 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
         strncpy(entry->buffer, old_buffer, entry->cur);
         entry->buffer[entry->cur] = '\0';
         strncat(entry->buffer, str, sz);
-        SDL_strlcat(entry->buffer, old_buffer + entry->cur, sz);
+        SDL_strlcat(entry->buffer, old_buffer + entry->cur, entry->sz + 1);
         SDL_free(old_buffer);
     } else {
         entry->sz = sz;
@@ -2339,7 +2378,8 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
     KeySym keysym;
 
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
-
+	entry_control->old_sz = entry_control->sz;
+	
     switch (control->window->e->type) {
         case KeyPress:
             keysym = X11_XLookupKeysym(&control->window->e->xkey, 0);
@@ -2512,12 +2552,18 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *windo
     control->buffer = NULL;
     control->sz = 0;
     control->cur = 0;
-    control->draw_sz = -1;
-    control->draw_buffer_offset = 0;
     control->cur_x = 0;
     control->cur_blink = true;
-    control->page = 0;
 	control->cur_blink_timer = SDL_AddTimer(500, X11Toolkit_BlinkEntryControlCursor, control);
+	
+	/* paging */
+	control->old_sz = control->sz;
+	control->pages_sz = 1;
+	control->current_page = 0;
+	control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_calloc(control->pages_sz, sizeof(SDL_ToolkitEntryControlPageX11));
+	control->pages[control->current_page].sz = 0;
+	control->pages[control->current_page].offset = 0;
+	
     X11Toolkit_CalculateEntryControl(base_control);
     X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
