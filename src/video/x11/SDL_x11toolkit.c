@@ -2372,7 +2372,7 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
 }
 
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
-    /* TODO: Move caret with mouse, selections, clipboard, working paging */
+    /* TODO: Move cursor with mouse, selections, clipboard, working paging */
     SDL_ToolkitEntryControlX11 *entry_control;
     char *pre_cur;
     int sz;
