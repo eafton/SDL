@@ -244,6 +244,7 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateLabelControl(SDL_ToolkitWindowX11
 
 /* ENTRY CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window);
+extern char *X11Toolkit_GetEntryControlText(SDL_ToolkitControlX11 *control); /* free with SDL_free when done */
 
 /* BUTTON CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);

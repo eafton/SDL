@@ -2304,11 +2304,11 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool d
 	int height;
 	int ascent;
 	int descent;
-	
+
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
     X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
-    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->sz - entry_control->pages[entry_control->current_page].offset, &width, &height, &ascent, &descent);
-	
+    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz, &width, &height, &ascent, &descent);
+    
 	if (width > entry_control->text_reserved_w && entry_control->cur_x <= entry_control->text_reserved_w) {
 		if (entry_control->current_page + 1 == entry_control->pages_sz) {
 			entry_control->pages_sz++;
@@ -2316,7 +2316,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool d
 			entry_control->pages[entry_control->current_page + 1].sz = entry_control->sz - entry_control->old_sz;
 			entry_control->pages[entry_control->current_page + 1].offset = entry_control->pages[entry_control->current_page].sz + entry_control->pages[entry_control->current_page].offset;
 		} else {
-			entry_control->pages[entry_control->current_page + 1].sz += entry_control->sz - entry_control->old_sz;
+			/* TODO */
 		}
 		return;
 	}
@@ -2380,7 +2380,6 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
 }
 
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
-    /* TODO: Move cursor with mouse, selections (both with mouse and shift+arrow keys), clipboard, working paging */
     SDL_ToolkitEntryControlX11 *entry_control;
     char *pre_cur;
     int sz;
@@ -2535,6 +2534,17 @@ static void X11Toolkit_OnEntryControlStateChange(SDL_ToolkitControlX11 *base_con
     }
 }
 
+char *X11Toolkit_GetEntryControlText(SDL_ToolkitControlX11 *control) {
+    SDL_ToolkitEntryControlX11 *entry_control;
+    char *str;
+    
+    entry_control = (SDL_ToolkitEntryControlX11 *)control;
+	str = SDL_malloc(entry_control->sz + 1);
+	strncpy(str, entry_control->buffer, entry_control->sz);
+	return str;
+}
+
+/* TODO: Move cursor with mouse, selections (both with mouse and shift+arrow keys), clipboard, paging bugs */
 SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window) {
     SDL_ToolkitEntryControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
