@@ -2266,7 +2266,7 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
 		int height;
 		int descent;
 		
-		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz, &width, &height, &ascent, &descent);
+		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &width, &height, &ascent, &descent);
 	}
     
 #ifdef X_HAVE_UTF8_STRING
