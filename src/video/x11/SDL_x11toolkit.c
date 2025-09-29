@@ -116,22 +116,29 @@ typedef struct SDL_ToolkitEntryControlX11
 {
     SDL_ToolkitControlX11 parent;
 
+	/* Text */
     char *buffer;
     size_t sz;
 	size_t old_sz;
-	size_t cur;
-    int cur_x;
     int text_x;
     int text_y;
     int text_reserved_w;
     int text_a;
+   
+	/* Cursor */
+	size_t cur;
+    int cur_x;
     int cur_draw_y1;
     int cur_draw_y2;
+
+	/* Cursor blink */
     bool cur_blink;
     SDL_TimerID cur_blink_timer;    
+
+	/* Paging */
     SDL_ToolkitEntryControlPageX11 *pages;
     size_t pages_sz;
-    size_t current_page;
+    ssize_t current_page;
 } SDL_ToolkitEntryControlX11;
 
 /* Font for icon control */
@@ -2215,9 +2222,6 @@ static void X11Toolkit_CalculateEntryControl(SDL_ToolkitControlX11 *control) {
 
 static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
     SDL_ToolkitEntryControlX11 *entry_control;
-	Region clip;
-	Region clip_entry;
-	XRectangle clip_rect;
     size_t sz;
     int cursor_x;
 	int ascent;
@@ -2257,25 +2261,6 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
 		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &width, &height, &ascent, &descent);
 	}
     
-	clip_rect.x = 0;
-    clip_rect.y = 0;
-	clip = X11_XCreateRegion();
-	clip_entry = X11_XCreateRegion();
-	if (control->window->pixmap) {
-		clip_rect.width = control->window->pixmap_width;
-		clip_rect.height = control->window->pixmap_height;
-    } else {
-		clip_rect.width = control->window->window_width;
-		clip_rect.height = control->window->window_height;
-    }
-    X11_XUnionRectWithRegion(&clip_rect, clip, clip);
-	clip_rect.x = control->rect.x;
-    clip_rect.y = control->rect.y;
-    clip_rect.width = control->rect.w;
-    clip_rect.height = control->rect.h;
-	X11_XUnionRectWithRegion(&clip_rect, clip_entry, clip_entry);
-	X11_XSubtractRegion(clip, clip_entry, clip);
-	//X11_XSetRegion(control->window->display, control->window->ctx, clip);
 #ifdef X_HAVE_UTF8_STRING
     if (control->window->utf8) {
         X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
@@ -2290,9 +2275,6 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
                                 control->rect.y + entry_control->text_y + ascent,
                                 entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz);
     }
-	X11_XSetClipMask(control->window->display, control->window->ctx, None);
-    X11_XDestroyRegion(clip);
-    X11_XDestroyRegion(clip_entry);
 }
 
 
@@ -2316,6 +2298,12 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
 	
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
     X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
+    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->sz - entry_control->pages[entry_control->current_page].offset, &width, &height, &ascent, &descent);
+	
+	if (width > entry_control->text_reserved_w && entry_control->cur_x <= entry_control->text_reserved_w) {
+		
+	}
+	
     if (entry_control->cur_x > entry_control->text_reserved_w) {
 		if (entry_control->current_page + 1 == entry_control->pages_sz) {
 			entry_control->pages_sz++;
