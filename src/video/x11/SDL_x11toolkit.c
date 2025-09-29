@@ -2289,7 +2289,7 @@ static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control) {
     SDL_free(entry_control);
 }
 
-static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
+static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool delete) {
     SDL_ToolkitEntryControlX11 *entry_control;
 	int width;
 	int height;
@@ -2301,7 +2301,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
     X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->sz - entry_control->pages[entry_control->current_page].offset, &width, &height, &ascent, &descent);
 	
 	if (width > entry_control->text_reserved_w && entry_control->cur_x <= entry_control->text_reserved_w) {
-		
+		return;
 	}
 	
     if (entry_control->cur_x > entry_control->text_reserved_w) {
@@ -2322,6 +2322,10 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
 			entry_control->current_page--;
 			if (entry_control->current_page < 0) {
 				entry_control->current_page = 0;
+			}
+			if (delete && entry_control->current_page != 0) {
+				entry_control->pages_sz--;
+				entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
 			}
 			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
 		} 
@@ -2364,10 +2368,12 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
     char *pre_cur;
     int sz;
     KeySym keysym;
-
+	bool delete;
+	
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
 	entry_control->old_sz = entry_control->sz;
-	
+	delete = false;
+
     switch (control->window->e->type) {
         case KeyPress:
             keysym = X11_XLookupKeysym(&control->window->e->xkey, 0);
@@ -2410,6 +2416,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
 #endif
                     SDL_memmove(&entry_control->buffer[entry_control->cur], &entry_control->buffer[entry_control->cur + 1], entry_control->sz - entry_control->cur);
                     entry_control->sz -= sz_sub;
+                    delete = true;
                 }
             } else if (keysym == XK_Tab) {                
                 /* Just ignore these keys for now. */
@@ -2442,7 +2449,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
                 SDL_free(str);
             }
 
-			X11Toolkit_ScrollEntryControl(control);
+			X11Toolkit_ScrollEntryControl(control, delete);
 			
 #ifdef X_HAVE_UTF8_STRING
             if (control->window->utf8 && control->window->im) {
