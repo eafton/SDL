@@ -135,10 +135,11 @@ typedef struct SDL_ToolkitEntryControlX11
     bool cur_blink;
     SDL_TimerID cur_blink_timer;    
 
-	/* Paging */
-    SDL_ToolkitEntryControlPageX11 *pages;
-    size_t pages_sz;
-    ssize_t current_page;
+    /* Paging */
+    int start_offset; // x offset from 0
+    int clip_offset; // x offset from clip_start
+    size_t clip_start; // clipped region start
+    size_t clip_end; // clipped region end
 } SDL_ToolkitEntryControlX11;
 
 /* Font for icon control */
@@ -2268,20 +2269,24 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control) {
 		
 		X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &width, &height, &ascent, &descent);
 	}
+
+    if (entry_control->buffer == NULL) {
+        return;
+    }
     
 #ifdef X_HAVE_UTF8_STRING
     if (control->window->utf8) {
         X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
-                                control->rect.x + entry_control->text_x,
+                                control->rect.x + entry_control->text_x + entry_control->clip_offset,
                                 control->rect.y + entry_control->text_y + ascent,
-                                entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz);
+                                &entry_control->buffer[entry_control->clip_start], entry_control->clip_end - entry_control->clip_start);
     } else
 #endif
     {
         X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
-                                control->rect.x + entry_control->text_x,
+                                control->rect.x + entry_control->text_x + entry_control->clip_offset,
                                 control->rect.y + entry_control->text_y + ascent,
-                                entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz);
+                                &entry_control->buffer[entry_control->clip_start], entry_control->clip_end - entry_control->clip_start);
     }
 }
 
@@ -2294,7 +2299,6 @@ static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control) {
     if (entry_control->buffer) {
         SDL_free(entry_control->buffer);
     }
-	SDL_free(entry_control->pages);
     SDL_free(entry_control);
 }
 
@@ -2306,48 +2310,48 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool d
 	int descent;
 
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
-    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
-    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->pages[entry_control->current_page].sz, &width, &height, &ascent, &descent);
-    
-	if (width > entry_control->text_reserved_w && entry_control->cur_x <= entry_control->text_reserved_w) {
-		if (entry_control->current_page + 1 == entry_control->pages_sz) {
-			entry_control->pages_sz++;
-			entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
-			entry_control->pages[entry_control->current_page + 1].sz = entry_control->sz - entry_control->old_sz;
-			entry_control->pages[entry_control->current_page + 1].offset = entry_control->pages[entry_control->current_page].sz + entry_control->pages[entry_control->current_page].offset;
-		} else {
-			/* TODO */
-		}
-		return;
-	}
-	
-    if (entry_control->cur_x > entry_control->text_reserved_w) {
-		if (entry_control->current_page + 1 == entry_control->pages_sz) {
-			entry_control->pages_sz++;
-			entry_control->current_page++;
-			entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
-			entry_control->pages[entry_control->current_page].sz = entry_control->sz - entry_control->old_sz;
-			entry_control->pages[entry_control->current_page].offset = entry_control->pages[entry_control->current_page - 1].sz + entry_control->pages[entry_control->current_page - 1].offset;
-			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
-		} else {
-			entry_control->current_page++;
-			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
-		}
-   } else {
-		entry_control->pages[entry_control->current_page].sz += entry_control->sz - entry_control->old_sz;
-		if (!entry_control->cur_x) {
-			entry_control->current_page--;
-			if (entry_control->current_page < 0) {
-				entry_control->current_page = 0;
-			}
-			if (delete && entry_control->current_page != 0) {
-				entry_control->pages_sz--;
-				entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
-			}
-			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
-		} 
-   }
-} 
+
+    // Ensure text is always right-justified (if it exceeds width)
+    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->sz, &width, &height, &ascent, &descent);
+    if (width > entry_control->text_reserved_w && width - entry_control->start_offset < entry_control->text_reserved_w) {
+        entry_control->start_offset = width - entry_control->text_reserved_w;
+    } else if (width < entry_control->text_reserved_w) { // Otherwise left align
+        entry_control->start_offset = 0;
+    }
+
+    // Position cursor
+    X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, entry_control->cur, &entry_control->cur_x, &height, &ascent, &descent);
+
+    // Scroll page to cursor
+    if ((entry_control->cur_x - entry_control->start_offset) > entry_control->text_reserved_w) {
+        // Move by offset
+        entry_control->start_offset = entry_control->cur_x - entry_control->text_reserved_w;
+    } else if ((entry_control->cur_x - entry_control->start_offset) < 0) {
+        entry_control->start_offset = entry_control->cur_x;
+    }
+
+
+    // Apply clipping, any characters below 0 or above max width are not displayed
+    entry_control->clip_end = entry_control->sz;
+    for (size_t i = 0; i < entry_control->sz; i++) {
+        X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, i, &width, &height, &ascent, &descent);
+        if (width > (entry_control->text_reserved_w + entry_control->start_offset)) {
+            entry_control->clip_end = i;
+            break;
+        }
+    }
+
+    for (size_t i = 0; i < entry_control->sz; i++) {
+        X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer, i, &width, &height, &ascent, &descent);
+        entry_control->clip_start = i;
+        if ((width - entry_control->start_offset) >= 0) {
+            break;
+        }
+    }
+    entry_control->cur_x = entry_control->cur_x - entry_control->start_offset; // cursor position - page start position
+
+    entry_control->clip_offset = 0;
+}
 
 void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry, char *str, int sz) {
 	SDL_ToolkitControlX11 *base_control;
@@ -2580,11 +2584,10 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *windo
 	
 	/* paging */
 	control->old_sz = control->sz;
-	control->pages_sz = 1;
-	control->current_page = 0;
-	control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_calloc(control->pages_sz, sizeof(SDL_ToolkitEntryControlPageX11));
-	control->pages[control->current_page].sz = 0;
-	control->pages[control->current_page].offset = 0;
+    control->start_offset = 0;
+    control->clip_offset = 0;
+    control->clip_start = 0;
+    control->clip_end = 0;
 	
     X11Toolkit_CalculateEntryControl(base_control);
     X11Toolkit_AddControlToWindow(window, base_control);
