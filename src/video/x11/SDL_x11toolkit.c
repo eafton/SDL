@@ -2286,6 +2286,7 @@ static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control) {
     if (entry_control->buffer) {
         SDL_free(entry_control->buffer);
     }
+	SDL_free(entry_control->pages);
     SDL_free(entry_control);
 }
 
@@ -2301,6 +2302,14 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool d
     X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->sz - entry_control->pages[entry_control->current_page].offset, &width, &height, &ascent, &descent);
 	
 	if (width > entry_control->text_reserved_w && entry_control->cur_x <= entry_control->text_reserved_w) {
+		if (entry_control->current_page + 1 == entry_control->pages_sz) {
+			entry_control->pages_sz++;
+			entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
+			entry_control->pages[entry_control->current_page + 1].sz = entry_control->sz - entry_control->old_sz;
+			entry_control->pages[entry_control->current_page + 1].offset = entry_control->pages[entry_control->current_page].sz + entry_control->pages[entry_control->current_page].offset;
+		} else {
+			entry_control->pages[entry_control->current_page + 1].sz += entry_control->sz - entry_control->old_sz;
+		}
 		return;
 	}
 	
@@ -2310,7 +2319,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control, bool d
 			entry_control->current_page++;
 			entry_control->pages = (SDL_ToolkitEntryControlPageX11 *)SDL_realloc(entry_control->pages, sizeof(SDL_ToolkitEntryControlPageX11) * entry_control->pages_sz);
 			entry_control->pages[entry_control->current_page].sz = entry_control->sz - entry_control->old_sz;
-			entry_control->pages[entry_control->current_page].offset = entry_control->pages[entry_control->current_page-1].sz + entry_control->pages[entry_control->current_page-1].offset;
+			entry_control->pages[entry_control->current_page].offset = entry_control->pages[entry_control->current_page - 1].sz + entry_control->pages[entry_control->current_page - 1].offset;
 			X11Toolkit_GetTextWidthHeight(control->window, entry_control->buffer + entry_control->pages[entry_control->current_page].offset, entry_control->cur - entry_control->pages[entry_control->current_page].offset, &entry_control->cur_x, &height, &ascent, &descent);
 		} else {
 			entry_control->current_page++;
@@ -2363,7 +2372,7 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
 }
 
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
-    /* TODO: Selections, clipboard, working scolling */
+    /* TODO: Move caret with mouse, selections, clipboard, working paging */
     SDL_ToolkitEntryControlX11 *entry_control;
     char *pre_cur;
     int sz;
@@ -2382,7 +2391,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
                 if (entry_control->cur > 0) {
                     entry_control->cur--;
 #ifdef X_HAVE_UTF8_STRING
-                    if (control->window->utf8 && control->window->im) {
+                    if (control->window->utf8) {
                         while (((entry_control->buffer[entry_control->cur]) & (1<<(7))) && !((entry_control->buffer[entry_control->cur]) & (1<<(6)))) {
                             entry_control->cur--;
                         }
@@ -2393,7 +2402,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) 
                 if (entry_control->cur < entry_control->sz) {
                     entry_control->cur++;
 #ifdef X_HAVE_UTF8_STRING
-                    if (control->window->utf8 && control->window->im) {
+                    if (control->window->utf8) {
                         while (((entry_control->buffer[entry_control->cur]) & (1<<(7))) && !((entry_control->buffer[entry_control->cur]) & (1<<(6)))) {
                             entry_control->cur++;
                         }
