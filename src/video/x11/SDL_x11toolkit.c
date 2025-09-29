@@ -823,9 +823,17 @@ SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_Tool
 #endif
 
 	/* Cursors */
-	window->cursor_normal = X11_XCreateFontCursor(window->display, XC_left_ptr);
- 	window->cursor_text_edit = X11_XCreateFontCursor(window->display, XC_xterm);
- 	
+#ifdef SDL_VIDEO_DRIVER_X11_XCURSOR
+    if (SDL_X11_HAVE_XCURSOR) {
+        window->cursor_normal = X11_XcursorLibraryLoadCursor(window->display, "default");
+        window->cursor_text_edit = X11_XcursorLibraryLoadCursor(window->display, "text");
+    } else 
+#endif
+	{
+		window->cursor_normal = X11_XCreateFontCursor(window->display, XC_left_ptr);
+		window->cursor_text_edit = X11_XCreateFontCursor(window->display, XC_xterm);
+	}
+	
 	return window;
 }
 
