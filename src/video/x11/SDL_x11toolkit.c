@@ -75,6 +75,9 @@ typedef struct SDL_ToolkitButtonControlX11
     /* Data */
     const SDL_MessageBoxButtonData *data;
 
+    /* Icon */
+    SDL_ToolkitIconX11 icon;
+
     /* Text */
     SDL_Rect text_rect;
     int text_a;
@@ -84,9 +87,6 @@ typedef struct SDL_ToolkitButtonControlX11
     char *text;
     bool free_text;
 #endif
-
-     /* Icon */
-    SDL_ToolkitIconX11 icon;
 
     /* Callback */
     void *cb_data;
@@ -2156,6 +2156,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
         SDL_SetError("Unable to allocate button control structure");
         return NULL;
     }
+    
     base_control->window = window;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->func_calc_size = X11Toolkit_CalculateButtonControl;
@@ -2171,6 +2172,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
     base_control->captures_lr_arrows = false;
     base_control->is_default_esc = false;
     base_control->special_focus = false;
+    
     if (data) {
         if (data->flags & SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT) {
             base_control->is_default_esc = true;
@@ -2185,32 +2187,28 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
         control->data = NULL;
     }
     control->icon = icon;
-    if (data->flags & SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT) {
-        base_control->is_default_esc = true;
-    }
-    if (data->flags & SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT) {
-        base_control->is_default_enter = true;
-        base_control->selected = true;
-    }
-    base_control->do_size = false;
-    control->data = data;
-    control->str_sz = SDL_strlen(control->data->text);
+	control->cb = NULL;
+   
 #ifdef HAVE_FRIBIDI_H
-    if (base_control->window->fribidi) {
-        control->text = SDL_FriBidi_Process(base_control->window->fribidi, (char *)control->data->text, control->str_sz, base_control->window->do_shaping, NULL);
-        if (control->text) {
-            control->free_text = true;
-            control->str_sz = SDL_strlen(control->text);
-        } else {
-            control->text = (char *)control->data->text;
-            control->free_text = false;
-        }
-    } else {
-        control->text = (char *)control->data->text;
-        control->free_text = false;
-    }
+	if (data) {
+		if (base_control->window->fribidi) {
+			control->text = SDL_FriBidi_Process(base_control->window->fribidi, (char *)control->data->text, control->str_sz, base_control->window->do_shaping, NULL);
+			if (control->text) {
+				control->free_text = true;
+				control->str_sz = SDL_strlen(control->text);
+			} else {
+				control->text = (char *)control->data->text;
+				control->free_text = false;
+			}
+		} else {
+			control->text = (char *)control->data->text;
+			control->free_text = false;
+		}
+	} else {
+		control->text = NULL;
+		control->free_text = false;		
+	}
 #endif
-    control->cb = NULL;
     
     base_control->do_size = true;
     X11Toolkit_CalculateButtonControl(base_control);
