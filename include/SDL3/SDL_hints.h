@@ -658,7 +658,8 @@ extern "C" {
  * - NULL: Select automatically (default, all platforms)
  * - "portal": Use XDG Portals through DBus (Unix only)
  * - "zenity": Use the Zenity program (Unix only)
- *
+ * - "toolkit": Use the current video driver toolkit (Unix only, X11 only)
+ * 
  * More options may be added in the future.
  *
  * This hint can be set anytime.

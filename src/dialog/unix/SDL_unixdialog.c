@@ -20,9 +20,13 @@
 */
 #include "SDL_internal.h"
 
+#include "../SDL_sysvideo.h"
 #include "../SDL_dialog.h"
 #include "./SDL_portaldialog.h"
 #include "./SDL_zenitydialog.h"
+#ifdef SDL_VIDEO_DRIVER_X11
+#include "./SDL_x11toolkitdialog.h"
+#endif
 
 static void (*detected_function)(SDL_FileDialogType type, SDL_DialogFileCallback callback, void *userdata, SDL_PropertiesID props) = NULL;
 
@@ -51,15 +55,29 @@ static int detect_available_methods(const char *value)
             return 1;
         }
     }
-
+    
+    if (driver == NULL || SDL_strcmp(driver, "toolkit") == 0) {
+        SDL_VideoDevice *video_device;
+        
+        video_device = SDL_GetVideoDevice();
+        if (video_device) {
+#ifdef SDL_VIDEO_DRIVER_X11
+            if (!SDL_strcmp(video_device->name, "x11")) {
+                detected_function = SDL_X11Toolkit_ShowFileDialogWithProperties;
+                return 2;
+            }
+#endif
+        }
+    }
+    
     if (driver == NULL || SDL_strcmp(driver, "zenity") == 0) {
         if (SDL_Zenity_detect()) {
             detected_function = SDL_Zenity_ShowFileDialogWithProperties;
-            return 2;
+            return 3;
         }
     }
 
-    SDL_SetError("File dialog driver unsupported (supported values for SDL_HINT_FILE_DIALOG_DRIVER are 'zenity' and 'portal')");
+    SDL_SetError("File dialog driver unsupported (supported values for SDL_HINT_FILE_DIALOG_DRIVER are 'zenity', 'portal' and 'toolkit')");
     return 0;
 }
 

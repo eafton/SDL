@@ -98,6 +98,13 @@ typedef struct SDL_ToolkitWindowX11
 	Bool shm_pixmap;
 #endif
     bool utf8;
+    
+#ifdef X_HAVE_UTF8_STRING
+	/* IME */
+	XIM im;
+	XIC ic;
+#endif
+
     /* Atoms */
     Atom wm_protocols;
     Atom wm_delete_message;
@@ -128,6 +135,9 @@ typedef struct SDL_ToolkitWindowX11
     XColor xcolor_bevel_d;
     XColor xcolor_pressed;
     XColor xcolor_disabled_text;
+    XColor xcolor_light_control_bg;
+    XColor xcolor_light_control_selection;
+    XColor xcolor_light_control_selection_text;
 
     /* Control list */
     bool has_focus;
@@ -137,6 +147,8 @@ typedef struct SDL_ToolkitWindowX11
     size_t controls_sz;
     struct SDL_ToolkitControlX11 **dyn_controls;
     size_t dyn_controls_sz;
+    struct SDL_ToolkitControlX11 **dyn_controls_non_capturing;
+    size_t dyn_controls_non_capturing_sz;
 
     /* User callbacks */
     void *cb_data;
@@ -163,6 +175,10 @@ typedef struct SDL_ToolkitWindowX11
 	SDL_FriBidi *fribidi;
 	bool do_shaping;
 #endif
+
+    /* Cursors */
+    Cursor cursor_normal;
+    Cursor cursor_text_edit;
 } SDL_ToolkitWindowX11;
 
 typedef enum SDL_ToolkitControlStateX11
@@ -184,6 +200,8 @@ typedef struct SDL_ToolkitControlX11
     bool is_default_enter;
     bool is_default_esc;
 	bool do_size;
+	bool captures_lr_arrows;
+	bool special_focus;
 
     /* User data */
     void *data;
@@ -194,6 +212,7 @@ typedef struct SDL_ToolkitControlX11
     void (*func_on_scale_change)(struct SDL_ToolkitControlX11 *);
     void (*func_on_state_change)(struct SDL_ToolkitControlX11 *);
     void (*func_free)(struct SDL_ToolkitControlX11 *);
+    bool (*func_process_event)(struct SDL_ToolkitControlX11 *); /* Custom event processing, used by the entry control, only called on selected controls, returns true to block */
 } SDL_ToolkitControlX11;
 
 typedef struct SDL_ToolkitMenuItemX11
@@ -216,6 +235,21 @@ typedef struct SDL_ToolkitMenuItemX11
     bool reverse_arrows;
 } SDL_ToolkitMenuItemX11;
 
+typedef enum SDL_ToolkitIconX11
+{
+    SDL_TOOLKIT_ICON_X11_NONE,
+    SDL_TOOLKIT_ICON_X11_UP_ARROW,
+    SDL_TOOLKIT_ICON_X11_DOWN_ARROW,
+	SDL_TOOLKIT_ICON_X11_LEFT_ARROW,
+	SDL_TOOLKIT_ICON_X11_RIGHT_ARROW
+} SDL_ToolkitIconX11;
+
+typedef struct SDL_ToolkitListItemX11
+{
+    const char *utf8;
+    SDL_ToolkitIconX11 icon;
+} SDL_ToolkitListItemX11;
+
 /* WINDOW FUNCTIONS */
 extern SDL_ToolkitWindowX11 *X11Toolkit_CreateWindowStruct(SDL_Window *parent, SDL_ToolkitWindowX11 *tkparent, SDL_ToolkitWindowModeX11 mode, const SDL_MessageBoxColor *colorhints, bool create_new_display);
 extern bool X11Toolkit_CreateWindowRes(SDL_ToolkitWindowX11 *data, int w, int h, int cx, int cy, char *title);
@@ -234,10 +268,27 @@ extern int X11Toolkit_GetIconControlCharY(SDL_ToolkitControlX11 *control);
 /* LABEL CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateLabelControl(SDL_ToolkitWindowX11 *window, char *utf8);
 
+/* ENTRY CONTROL FUNCTIONS */
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window);
+extern char *X11Toolkit_GetEntryControlText(SDL_ToolkitControlX11 *control); /* free with SDL_free when done */
+extern void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, char *str);
+
 /* BUTTON CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);
-extern void X11Toolkit_RegisterCallbackForButtonControl(SDL_ToolkitControlX11 *control, void *data, void (*cb)(struct SDL_ToolkitControlX11 *, void *));
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateIconButtonControl(SDL_ToolkitWindowX11 *window, SDL_ToolkitIconX11 icon);
+extern void X11Toolkit_RegisterCallbackForButtonControl(SDL_ToolkitControlX11 *control, void *data, void (*cb)(SDL_ToolkitControlX11 *, void *));
 extern const SDL_MessageBoxButtonData *X11Toolkit_GetButtonControlData(SDL_ToolkitControlX11 *control);
+
+/* SLIDER FUNCTIONS */
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateSliderControl(SDL_ToolkitWindowX11 *window, bool horiz);
+extern void X11Toolkit_ElevateSliderControl(SDL_ToolkitControlX11 *base_control);
+extern void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control);
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateBlockControl(SDL_ToolkitWindowX11 *window);
+
+/* LIST FUNCTIONS */
+extern SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window);
+extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control , SDL_Rect *rect); 
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, SDL_ListNode *items);
 
 #endif // SDL_VIDEO_DRIVER_X11
 
