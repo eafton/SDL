@@ -135,8 +135,8 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	SDL_ListAdd(&list_items, &c);
 	SDL_ListAdd(&list_items, &b);
 	SDL_ListAdd(&list_items, &a);
-	SDL_ListAdd(&list_items, &go_up)
-	;
+	SDL_ListAdd(&list_items, &go_up);
+	
 	list = X11Toolkit_CreateListControl(window, "Files", list_items);
     list->rect.x = 202;
     list->rect.y = 34;

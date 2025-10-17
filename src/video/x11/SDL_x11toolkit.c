@@ -151,6 +151,12 @@ typedef struct SDL_ToolkitListControlX11
   	int item_area_reserved_w;
   	int item_area_reserved_h;
 	bool item_area_rendered;
+	
+    /* Colors */
+    XColor xcolor_black;
+    XColor xcolor_green;
+    XColor xcolor_white;
+    XColor xcolor_cream;
 } SDL_ToolkitListControlX11;
 
 typedef struct SDL_ToolkitEntryControlX11
@@ -3380,16 +3386,63 @@ static void X11Toolkit_CalculateListControl(SDL_ToolkitControlX11 *base_control)
 		control->item_area_rect.h = 0;
 		while (cursor) {
 			SDL_ToolkitListItemX11 *item;
-
+			int pad;
+			
 			item = cursor->entry;
 			
 			item->utf8_len = SDL_strlen(item->utf8);
 			X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_len, &item->text_rect.w, &item->text_rect.h, &ascent, &descent, NULL);
-			item->rect.x = 0;
-			item->rect.w = item->text_rect.w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
-			item->rect.h = item->text_rect.h + SDL_TOOLKIT_X11_ELEMENT_PADDING * 2 * base_control->window->iscale;
+			switch (item->icon) {
+				case SDL_TOOLKIT_ICON_X11_UP_ARROW:
+					if (!control->xcolor_green.flags) {
+						control->xcolor_green.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_green);
+					}
+					if (!control->xcolor_black.flags) {
+						control->xcolor_black.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_black);
+					}
+					item->icon_rect.w = item->icon_rect.h = 16 * base_control->window->iscale;
+					pad = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+					break;
+				case SDL_TOOLKIT_ICON_X11_FILE:
+					if (!control->xcolor_white.flags) {
+						control->xcolor_white.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_white);
+					}
+					if (!control->xcolor_black.flags) {
+						control->xcolor_black.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_black);
+					}					
+					item->icon_rect.w = item->icon_rect.h = 16 * base_control->window->iscale;
+					pad = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+					break;
+				case SDL_TOOLKIT_ICON_X11_FOLDER:
+					if (!control->xcolor_cream.flags) {
+						control->xcolor_cream.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_cream);
+					}
+					if (!control->xcolor_black.flags) {
+						control->xcolor_black.flags = DoRed|DoGreen|DoBlue;
+						X11_XAllocColor(base_control->window->display, base_control->window->cmap, &control->xcolor_black);
+					}					
+					item->icon_rect.w = item->icon_rect.h = 16 * base_control->window->iscale;
+					pad = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+					break;
+				default:
+					pad = 0;
+					item->icon_rect.w = item->icon_rect.h = 0;
+			}
+			
+        	item->rect.x = 0;
+			item->rect.w = item->text_rect.w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale + item->icon_rect.w + pad;
+			item->rect.h = SDL_max(item->text_rect.h, item->icon_rect.h) + SDL_TOOLKIT_X11_ELEMENT_PADDING * 2 * base_control->window->iscale;
 			item->text_rect.y = (item->rect.h - item->text_rect.h)/2 + ascent;
-			item->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+			item->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale + item->icon_rect.w + pad;
+			if (item->icon_rect.w) {
+				item->icon_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+				item->icon_rect.y = (item->rect.h - item->icon_rect.h)/2;
+			}
 			if (last_item) {
 				item->rect.y = last_item->rect.y + item->rect.h;
 			} else {
@@ -3452,6 +3505,57 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control) {
 
 			item = cursor->entry;
 
+			switch (item->icon) {
+				case SDL_TOOLKIT_ICON_X11_UP_ARROW: 
+					{
+						XPoint points[3];
+
+						X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_black.pixel);
+						points[0].x = item->rect.x + item->icon_rect.x + item->icon_rect.w/2;
+						points[0].y = item->rect.y + item->icon_rect.y;
+						points[1].x = item->rect.x + item->icon_rect.x;
+						points[1].y = item->rect.y + item->icon_rect.y + item->icon_rect.h;
+						points[2].x = item->rect.x + item->icon_rect.x + item->icon_rect.w;
+						points[2].y = item->rect.y + item->icon_rect.y + item->icon_rect.h;
+						X11_XFillPolygon(base_control->window->display, control->item_area, base_control->window->ctx, points, 3, Convex, CoordModeOrigin);
+						
+						X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_green.pixel);
+						points[0].x = item->rect.x + item->icon_rect.x + item->icon_rect.w/2; 
+						points[0].y = item->rect.y + item->icon_rect.y + 2 * base_control->window->iscale;
+						points[1].x = item->rect.x + item->icon_rect.x + 2 * base_control->window->iscale;
+						points[1].y = item->rect.y + item->icon_rect.y + item->icon_rect.h - 1 * base_control->window->iscale;
+						points[2].x = item->rect.x + item->icon_rect.x + item->icon_rect.w - 2 * base_control->window->iscale;
+						points[2].y = item->rect.y + item->icon_rect.y + item->icon_rect.h - 1 * base_control->window->iscale;
+
+						X11_XFillPolygon(base_control->window->display, control->item_area, base_control->window->ctx, points, 3, Convex, CoordModeOrigin);	
+					}
+					break;
+				case SDL_TOOLKIT_ICON_X11_FILE:
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_black.pixel);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x, item->rect.y + item->icon_rect.y, item->icon_rect.w, item->icon_rect.h);
+
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_white.pixel);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 1 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 1 * base_control->window->iscale, item->icon_rect.w - 2 * base_control->window->iscale, item->icon_rect.h - 2 * base_control->window->iscale);
+
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_black.pixel);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 3 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 3 * base_control->window->iscale, item->icon_rect.w - 6 * base_control->window->iscale, 1 * base_control->window->iscale);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 3 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 6 * base_control->window->iscale, item->icon_rect.w - 6 * base_control->window->iscale, 1 * base_control->window->iscale);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 3 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 9 * base_control->window->iscale, item->icon_rect.w - 6 * base_control->window->iscale, 1 * base_control->window->iscale);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 3 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 12 * base_control->window->iscale, item->icon_rect.w - 6 * base_control->window->iscale, 1 * base_control->window->iscale);
+					break;
+				case SDL_TOOLKIT_ICON_X11_FOLDER:
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_black.pixel);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x, item->rect.y + item->icon_rect.y + 2 * base_control->window->iscale, item->icon_rect.w, item->icon_rect.h - 2 * base_control->window->iscale );
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 1 * base_control->window->iscale, item->rect.y + item->icon_rect.y, 7 * base_control->window->iscale, 2 * base_control->window->iscale );
+		
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, control->xcolor_cream.pixel);
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 1 * base_control->window->iscale, item->rect.y + item->icon_rect.y + 3 * base_control->window->iscale, item->icon_rect.w - 2  * base_control->window->iscale, item->icon_rect.h - 4 * base_control->window->iscale );
+					X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->icon_rect.x + 2 * base_control->window->iscale, item->rect.y + item->icon_rect.y  + 1 * base_control->window->iscale, 5 * base_control->window->iscale, 1 * base_control->window->iscale );
+					break;
+				default:
+					break;
+			}
+
 			X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
 #ifdef X_HAVE_UTF8_STRING
 			if (base_control->window->utf8) {
@@ -3484,6 +3588,7 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
         return NULL;
     }
     
+    /* base control */
     base_control->window = window;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->func_calc_size = X11Toolkit_CalculateListControl;
@@ -3499,11 +3604,32 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
     base_control->captures_lr_arrows = false;
     base_control->special_focus = false;
 
+	/* control */
 	control->header = header;
 	control->header_sz = SDL_strlen(header);
 	control->items = items;
 	control->item_area = None;
 	
+	/* colors */
+	control->xcolor_green.flags = 0;
+	control->xcolor_green.red = 0;
+	control->xcolor_green.green = 51400;
+	control->xcolor_green.blue = 0;
+	control->xcolor_black.flags = 0;
+	control->xcolor_black.red = 0;
+	control->xcolor_black.green = 0;
+	control->xcolor_black.blue = 0;
+	control->xcolor_white.flags = 0;
+	control->xcolor_white.red = 65535;
+	control->xcolor_white.green = 65535;
+	control->xcolor_white.blue = 65535;
+	control->xcolor_cream.flags = 0;
+	control->xcolor_cream.red = 61680;
+	control->xcolor_cream.green = 53713;
+	control->xcolor_cream.blue = 0;
+
+	
+	/* size */
 	base_control->do_size = true;
 	X11Toolkit_CalculateListControl(base_control);
 	base_control->do_size = false;
