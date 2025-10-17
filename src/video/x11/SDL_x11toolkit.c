@@ -134,6 +134,25 @@ typedef struct SDL_ToolkitSliderControlX11
     SDL_Rect handle_rect;
 } SDL_ToolkitSliderControlX11;
 
+typedef struct SDL_ToolkitListControlX11
+{
+    SDL_ToolkitControlX11 parent;
+
+	/* Header */
+	const char *header;
+	size_t header_sz;
+	SDL_Rect header_rect;
+	SDL_Rect header_text_rect;
+	
+	/* Items */
+	SDL_ListNode *items;
+    Pixmap item_area;
+  	SDL_Rect item_area_rect;
+  	int item_area_reserved_w;
+  	int item_area_reserved_h;
+	bool item_area_rendered;
+} SDL_ToolkitListControlX11;
+
 typedef struct SDL_ToolkitEntryControlX11
 {
     SDL_ToolkitControlX11 parent;
@@ -2963,7 +2982,7 @@ char *X11Toolkit_GetEntryControlText(SDL_ToolkitControlX11 *control) {
     return str;
 }
 
-void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, char *str) {
+void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, const char *str) {
     SDL_ToolkitEntryControlX11 *entry_control;
     
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
@@ -2977,6 +2996,7 @@ void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, char *str) {
     X11Toolkit_DrawWindow(control->window);
 }
 
+/* Special thanks to m-doescode on Github for helping me with the entry control */
 /* TODO: Move cursor with mouse, selections (both with mouse and shift+arrow keys), clipboard */
 SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window) {
     SDL_ToolkitEntryControlX11 *control;
@@ -3324,5 +3344,174 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateBlockControl(SDL_ToolkitWindowX11 *windo
     X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
 }
+
+static void X11Toolkit_CalculateListControl(SDL_ToolkitControlX11 *base_control) {
+	SDL_ToolkitListControlX11 *control;
+	int ascent;
+	int descent;
+
+    control = (SDL_ToolkitListControlX11 *)base_control;
+	X11Toolkit_GetTextWidthHeight(base_control->window, control->header, control->header_sz, &control->header_text_rect.w, &control->header_text_rect.h, &ascent, &descent, NULL);
+	control->header_rect.x = 0;
+	control->header_rect.y = 0;
+	control->header_rect.w = control->header_text_rect.w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
+	control->header_rect.h = control->header_text_rect.h + SDL_TOOLKIT_X11_ELEMENT_PADDING * 2 * base_control->window->iscale;
+	control->header_text_rect.y = (control->header_rect.h - control->header_text_rect.h)/2 + ascent;
+	control->header_text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+	if (base_control->do_size) {
+		base_control->rect.w = control->header_rect.w;
+		base_control->rect.h = control->header_rect.h;
+	} else {
+		control->header_rect.w = SDL_max(control->header_rect.w, base_control->rect.w);
+	}
+	
+	control->item_area_rect.y = control->header_rect.y + control->header_rect.h;
+	control->item_area_reserved_w = base_control->rect.w;
+	control->item_area_reserved_h = base_control->rect.h - control->header_rect.h;
+	control->item_area_rect.w = 2;
+	control->item_area_rect.h = 2;
+	control->item_area_rect.x = 0;
+	if (control->items) {
+		SDL_ListNode *cursor;
+		SDL_ToolkitListItemX11 *last_item;
+		
+		last_item = NULL;
+		cursor = control->items;
+		control->item_area_rect.h = 0;
+		while (cursor) {
+			SDL_ToolkitListItemX11 *item;
+
+			item = cursor->entry;
+			
+			item->utf8_len = SDL_strlen(item->utf8);
+			X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_len, &item->text_rect.w, &item->text_rect.h, &ascent, &descent, NULL);
+			item->rect.x = 0;
+			item->rect.w = item->text_rect.w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
+			item->rect.h = item->text_rect.h + SDL_TOOLKIT_X11_ELEMENT_PADDING * 2 * base_control->window->iscale;
+			item->text_rect.y = (item->rect.h - item->text_rect.h)/2 + ascent;
+			item->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
+			if (last_item) {
+				item->rect.y = last_item->rect.y + item->rect.h;
+			} else {
+				item->rect.y = 0;
+			}
+			control->item_area_rect.h += item->rect.h;
+			control->item_area_rect.w = SDL_max(control->item_area_rect.w, item->rect.w);
+			
+			last_item = item;
+			cursor = cursor->next;
+		}
+	}
+	
+    if (control->item_area != None) {
+		X11_XFreePixmap(base_control->window->display, control->item_area);
+    }
+    control->item_area = X11_XCreatePixmap(base_control->window->display, RootWindow(base_control->window->display, base_control->window->screen), control->item_area_rect.w, control->item_area_rect.h, base_control->window->depth);
+	control->item_area_rendered = false;
+}
+
+static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control) {
+	SDL_ToolkitListControlX11 *control;
+		
+    control = (SDL_ToolkitListControlX11 *)base_control;
+    
+	/* background */
+	X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_bg.pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x, base_control->rect.y, base_control->rect.w, base_control->rect.h);
+
+    /* header */
+    X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_rect.x, base_control->rect.y + control->header_rect.y, control->header_rect.w, control->header_rect.h);
+    X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,  base_control->rect.x + control->header_rect.x, base_control->rect.y + control->header_rect.y,  control->header_rect.w - 1 * base_control->window->iscale, control->header_rect.h - 1 * base_control->window->iscale);
+    X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->header_rect.y + 1 * base_control->window->iscale, control->header_rect.w - 2 * base_control->window->iscale, control->header_rect.h - 2 * base_control->window->iscale);
+    X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->header_rect.y + 1 * base_control->window->iscale,  control->header_rect.w - 3 * base_control->window->iscale, control->header_rect.h - 3 * base_control->window->iscale);
+	X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].pixel);
+    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->header_rect.y + 2 * base_control->window->iscale, control->header_rect.w - 4 * base_control->window->iscale, control->header_rect.h - 4 * base_control->window->iscale);
+	X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
+#ifdef X_HAVE_UTF8_STRING
+	if (base_control->window->utf8) {
+		X11_Xutf8DrawString(base_control->window->display, base_control->window->drawable, base_control->window->font_set, base_control->window->ctx, base_control->rect.x + control->header_text_rect.x, base_control->rect.y + control->header_text_rect.y, control->header, control->header_sz);
+	} else
+#endif
+	{
+		X11_XDrawString(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_text_rect.x, base_control->rect.y + control->header_text_rect.y, control->header, control->header_sz);
+	}
+	
+	if (!control->item_area_rendered && control->items) {
+		SDL_ListNode *cursor;
+		
+		X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_bg.pixel);
+		X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, 0, 0, control->item_area_rect.w, control->item_area_rect.h);
+		
+		cursor = control->items;
+		while (cursor) {
+			SDL_ToolkitListItemX11 *item;
+
+			item = cursor->entry;
+
+			X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
+#ifdef X_HAVE_UTF8_STRING
+			if (base_control->window->utf8) {
+				X11_Xutf8DrawString(base_control->window->display, control->item_area, base_control->window->font_set, base_control->window->ctx, item->rect.x + item->text_rect.x, item->rect.y + item->text_rect.y, item->utf8, item->utf8_len);
+			} else
+#endif
+			{
+				X11_XDrawString(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x + item->text_rect.x, item->rect.y + item->text_rect.y, item->utf8, item->utf8_len);
+			}
+			
+			cursor = cursor->next;
+		}
+		
+		control->item_area_rendered = true;
+	}
+	
+	if (control->item_area_rendered) {
+		X11_XCopyArea(base_control->window->display, control->item_area, base_control->window->drawable, base_control->window->ctx, 0, 0, SDL_min(control->item_area_reserved_w, control->item_area_rect.w), SDL_min(control->item_area_reserved_h, control->item_area_rect.h), base_control->rect.x + control->item_area_rect.x, base_control->rect.y + control->item_area_rect.y);
+	}	
+}
+
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items) {
+	SDL_ToolkitListControlX11 *control;
+    SDL_ToolkitControlX11 *base_control;
+	
+    control = (SDL_ToolkitListControlX11 *)SDL_malloc(sizeof(SDL_ToolkitListControlX11));
+    base_control = (SDL_ToolkitControlX11 *)control;
+    if (!base_control) {
+        SDL_SetError("Unable to allocate list control structure");
+        return NULL;
+    }
+    
+    base_control->window = window;
+    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+    base_control->func_calc_size = X11Toolkit_CalculateListControl;
+    base_control->func_draw = X11Toolkit_DrawListControl;
+    base_control->func_on_state_change =  NULL;
+    base_control->func_free = X11Toolkit_DestroyGenericControl;
+    base_control->func_on_scale_change = NULL;
+    base_control->func_process_event = NULL;
+    base_control->selected = false;
+    base_control->dynamic = false;
+    base_control->is_default_enter = false;
+    base_control->is_default_esc = false;
+    base_control->captures_lr_arrows = false;
+    base_control->special_focus = false;
+
+	control->header = header;
+	control->header_sz = SDL_strlen(header);
+	control->items = items;
+	control->item_area = None;
+	
+	base_control->do_size = true;
+	X11Toolkit_CalculateListControl(base_control);
+	base_control->do_size = false;
+	
+	X11Toolkit_AddControlToWindow(window, base_control);
+    return base_control;
+}
+
+
 
 #endif // SDL_VIDEO_DRIVER_X11

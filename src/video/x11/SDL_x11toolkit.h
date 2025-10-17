@@ -241,13 +241,22 @@ typedef enum SDL_ToolkitIconX11
     SDL_TOOLKIT_ICON_X11_UP_ARROW,
     SDL_TOOLKIT_ICON_X11_DOWN_ARROW,
 	SDL_TOOLKIT_ICON_X11_LEFT_ARROW,
-	SDL_TOOLKIT_ICON_X11_RIGHT_ARROW
+	SDL_TOOLKIT_ICON_X11_RIGHT_ARROW,
+	SDL_TOOLKIT_ICON_X11_FILE,
+	SDL_TOOLKIT_ICON_X11_FOLDER
 } SDL_ToolkitIconX11;
 
 typedef struct SDL_ToolkitListItemX11
 {
     const char *utf8;
     SDL_ToolkitIconX11 icon;
+    
+    /* Internal use */
+    size_t utf8_len;
+    SDL_Rect rect;
+    SDL_Rect text_rect;
+    SDL_Rect icon_rect;
+    SDL_ToolkitControlStateX11 state;
 } SDL_ToolkitListItemX11;
 
 /* WINDOW FUNCTIONS */
@@ -271,7 +280,7 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateLabelControl(SDL_ToolkitWindowX11
 /* ENTRY CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window);
 extern char *X11Toolkit_GetEntryControlText(SDL_ToolkitControlX11 *control); /* free with SDL_free when done */
-extern void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, char *str);
+extern void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, const char *str);
 
 /* BUTTON CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);
@@ -287,8 +296,8 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateBlockControl(SDL_ToolkitWindowX11
 
 /* LIST FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window);
-extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control , SDL_Rect *rect); 
-extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, SDL_ListNode *items);
+extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect); 
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items);
 
 #endif // SDL_VIDEO_DRIVER_X11
 

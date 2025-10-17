@@ -44,6 +44,12 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	SDL_ToolkitControlX11 *button;
 	SDL_ToolkitControlX11 *slider;
 	SDL_ToolkitControlX11 *pan;
+	SDL_ToolkitControlX11 *list;
+	SDL_ListNode *list_items;
+	SDL_ToolkitListItemX11 a;
+	SDL_ToolkitListItemX11 b;
+	SDL_ToolkitListItemX11 c;
+	SDL_ToolkitListItemX11 go_up;
 	SDL_Window *parent_window;
 	const char *title;
 	SDL_Rect pan_inner_area;
@@ -117,9 +123,27 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
  	X11Toolkit_NotifyControlOfSizeChange(button);
 	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)slider, elevate);
 
-	
-
-	
+	list_items = NULL;
+	go_up.utf8 = "Go Up";
+	go_up.icon = SDL_TOOLKIT_ICON_X11_UP_ARROW;
+	a.utf8 = "Super Mario 64";
+	a.icon = SDL_TOOLKIT_ICON_X11_FILE;
+	b.utf8 = "Star Fox 64";
+	b.icon = SDL_TOOLKIT_ICON_X11_FOLDER;
+	c.utf8 = "F-ZERO X";
+	c.icon = SDL_TOOLKIT_ICON_X11_NONE;
+	SDL_ListAdd(&list_items, &c);
+	SDL_ListAdd(&list_items, &b);
+	SDL_ListAdd(&list_items, &a);
+	SDL_ListAdd(&list_items, &go_up)
+	;
+	list = X11Toolkit_CreateListControl(window, "Files", list_items);
+    list->rect.x = 202;
+    list->rect.y = 34;
+    list->rect.w = 281;
+    list->rect.h = 281;
+ 	X11Toolkit_NotifyControlOfSizeChange(list);
+ 	
 	X11Toolkit_CreateWindowRes(window, 640, 480, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
     X11Toolkit_DestroyWindow(window);
