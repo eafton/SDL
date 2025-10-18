@@ -290,14 +290,18 @@ extern const SDL_MessageBoxButtonData *X11Toolkit_GetButtonControlData(SDL_Toolk
 
 /* SLIDER FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateSliderControl(SDL_ToolkitWindowX11 *window, bool horiz);
+extern void X11Toolkit_SetSliderControlSize(SDL_ToolkitControlX11 *base_control, int real, int reserved);
 extern void X11Toolkit_ElevateSliderControl(SDL_ToolkitControlX11 *base_control);
 extern void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control);
+extern void X11Toolkit_RegisterSliderControlCallback(SDL_ToolkitControlX11 *control, void *data, void (*cb)(SDL_ToolkitControlX11 *, void *data, int real, int reserved, int offset));
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateBlockControl(SDL_ToolkitWindowX11 *window);
 
 /* LIST FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window);
 extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect); 
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items);
+extern void X11Toolkit_GetListControlAreaSize(SDL_ToolkitControlX11 *base_control, int *real_w, int *real_h, int *reserved_w, int *reserved_h);
+extern void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control, int x, int y);
 
 #endif // SDL_VIDEO_DRIVER_X11
 

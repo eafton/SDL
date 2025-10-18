@@ -132,6 +132,8 @@ typedef struct SDL_ToolkitSliderControlX11
     Pixmap bg;
     SDL_ToolkitControlStateX11 handle_state;
     SDL_Rect handle_rect;
+    void *user_data;
+    void (*callback)(SDL_ToolkitControlX11 *, void *, int, int, int);
 } SDL_ToolkitSliderControlX11;
 
 typedef struct SDL_ToolkitListControlX11
@@ -148,8 +150,7 @@ typedef struct SDL_ToolkitListControlX11
 	SDL_ListNode *items;
     Pixmap item_area;
   	SDL_Rect item_area_rect;
-  	int item_area_reserved_w;
-  	int item_area_reserved_h;
+  	SDL_Rect item_area_reserved_rect;
 	bool item_area_rendered;
 	
     /* Colors */
@@ -2810,11 +2811,6 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control) {
 }
 
 void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry, char *str, int sz) {
-    SDL_ToolkitControlX11 *base_control;
-    char *pre_cur;
-    
-    base_control = (SDL_ToolkitControlX11 *)entry;
-
     if (sz <= 0) {
         return;
     }
@@ -2842,7 +2838,6 @@ void X11Toolkit_InjectStringIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *e
 static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control) {
     SDL_ToolkitEntryControlX11 *entry_control;
     KeySym keysym;
-    char *pre_cur;
     int sz;
     
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
@@ -3110,6 +3105,36 @@ static void X11Toolkit_CalculateSliderControl(SDL_ToolkitControlX11 *base_contro
     }
 }
 
+void X11Toolkit_SetSliderControlSize(SDL_ToolkitControlX11 *base_control, int real, int reserved) {
+    SDL_ToolkitSliderControlX11 *control;
+	double ratio;
+	
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
+	control->handle_rect.x = 0;
+	control->handle_rect.y = 0;   
+	if (control->horiz) {
+		ratio = (double)base_control->rect.w/(double)real;     
+		control->handle_rect.w = SDL_max(SDL_lround((double)reserved * ratio), 3 * base_control->window->iscale);	
+		if (control->handle_rect.w > base_control->rect.w) {
+			control->handle_rect.w = base_control->rect.w;
+		}
+	} else {
+		ratio = (double)base_control->rect.h/(double)real;     
+		control->handle_rect.h = SDL_max(SDL_lround((double)reserved * ratio), 3 * base_control->window->iscale);		
+		if (control->handle_rect.h > base_control->rect.h) {
+			control->handle_rect.h = base_control->rect.h;
+		}
+	}
+}
+
+void X11Toolkit_RegisterSliderControlCallback(SDL_ToolkitControlX11 *control, void *data, void (*cb)(SDL_ToolkitControlX11 *, void *data, int real, int reserved, int offset)) {	
+    SDL_ToolkitSliderControlX11 *slider_control;
+
+    slider_control = (SDL_ToolkitSliderControlX11 *)control;
+    slider_control->user_data = data;
+	slider_control->callback = cb;
+}
+
 static void X11Toolkit_OnSliderControlScaleChange(SDL_ToolkitControlX11 *base_control) {
     SDL_ToolkitSliderControlX11 *control;
     GC ctx;
@@ -3163,7 +3188,10 @@ static void X11Toolkit_OnSliderControlStateChange(SDL_ToolkitControlX11 *base_co
                         control->handle_rect.x = base_control->rect.w - control->handle_rect.w;
                     } else if (control->handle_rect.x < 0) {
                         control->handle_rect.x = 0;
-                    }                        
+                    }           
+					if (control->callback) {
+						control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
+					}             
                 } else {
                     control->handle_rect.y = y;
                     if (control->handle_rect.y + control->handle_rect.h > base_control->rect.h) {
@@ -3171,6 +3199,9 @@ static void X11Toolkit_OnSliderControlStateChange(SDL_ToolkitControlX11 *base_co
                     } else if (control->handle_rect.y < 0) {
                         control->handle_rect.y = 0;
                     }    
+					if (control->callback) {
+						control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
+					}             
                 }
             } else { 
                 control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;    
@@ -3219,11 +3250,13 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateSliderControl(SDL_ToolkitWindowX11 *wind
     control->horiz = horiz;
     control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     control->bg = None;
-    X11Toolkit_OnSliderControlScaleChange(base_control); 
+    control->callback = NULL;
+	control->user_data = NULL;
+	X11Toolkit_OnSliderControlScaleChange(base_control); 
     base_control->do_size = true;
     X11Toolkit_CalculateSliderControl(base_control); 
     base_control->do_size = false;
-
+	
     X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
 }
@@ -3237,12 +3270,18 @@ void X11Toolkit_ElevateSliderControl(SDL_ToolkitControlX11 *base_control) {
         if (control->handle_rect.y < 0) {
             control->handle_rect.y = 0;
         }
+        if (control->callback) {
+			control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
+		}
     } else {
         control->handle_rect.x += 10 * base_control->window->iscale;
         if (control->handle_rect.x + control->handle_rect.w > base_control->rect.w) {
             control->handle_rect.x = base_control->rect.w - control->handle_rect.w;
         }
-    }
+		if (control->callback) {
+			control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
+		}
+  }
 }
 
 void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control){
@@ -3254,11 +3293,17 @@ void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control){
         if (control->handle_rect.y + control->handle_rect.h > base_control->rect.h) {
             control->handle_rect.y = base_control->rect.h - control->handle_rect.h;
         }
+        if (control->callback) {
+			control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
+		}
     } else {
         control->handle_rect.x -= 10 * base_control->window->iscale;
         if (control->handle_rect.x < 0) {
             control->handle_rect.x = 0;
         }        
+		if (control->callback) {
+			control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
+		}
     }
 }
 
@@ -3372,11 +3417,13 @@ static void X11Toolkit_CalculateListControl(SDL_ToolkitControlX11 *base_control)
 	}
 	
 	control->item_area_rect.y = control->header_rect.y + control->header_rect.h;
-	control->item_area_reserved_w = base_control->rect.w;
-	control->item_area_reserved_h = base_control->rect.h - control->header_rect.h;
+	control->item_area_reserved_rect.w = base_control->rect.w;
+	control->item_area_reserved_rect.h = base_control->rect.h - control->header_rect.h;
 	control->item_area_rect.w = 2;
 	control->item_area_rect.h = 2;
 	control->item_area_rect.x = 0;
+	control->item_area_reserved_rect.x = 0;
+	control->item_area_reserved_rect.y = 0;
 	if (control->items) {
 		SDL_ListNode *cursor;
 		SDL_ToolkitListItemX11 *last_item;
@@ -3492,7 +3539,8 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control) {
 	{
 		X11_XDrawString(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_text_rect.x, base_control->rect.y + control->header_text_rect.y, control->header, control->header_sz);
 	}
-	
+
+	/* items */
 	if (!control->item_area_rendered && control->items) {
 		SDL_ListNode *cursor;
 		
@@ -3572,8 +3620,9 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control) {
 		control->item_area_rendered = true;
 	}
 	
+	/* copy items pixmap to drawable */
 	if (control->item_area_rendered) {
-		X11_XCopyArea(base_control->window->display, control->item_area, base_control->window->drawable, base_control->window->ctx, 0, 0, SDL_min(control->item_area_reserved_w, control->item_area_rect.w), SDL_min(control->item_area_reserved_h, control->item_area_rect.h), base_control->rect.x + control->item_area_rect.x, base_control->rect.y + control->item_area_rect.y);
+		X11_XCopyArea(base_control->window->display, control->item_area, base_control->window->drawable, base_control->window->ctx, control->item_area_reserved_rect.x, control->item_area_reserved_rect.y, SDL_min(control->item_area_reserved_rect.w, control->item_area_rect.w), SDL_min(control->item_area_reserved_rect.h, control->item_area_rect.h), base_control->rect.x + control->item_area_rect.x, base_control->rect.y + control->item_area_rect.y);
 	}	
 }
 
@@ -3628,7 +3677,6 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
 	control->xcolor_cream.green = 53713;
 	control->xcolor_cream.blue = 0;
 
-	
 	/* size */
 	base_control->do_size = true;
 	X11Toolkit_CalculateListControl(base_control);
@@ -3638,6 +3686,27 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
     return base_control;
 }
 
+void X11Toolkit_GetListControlAreaSize(SDL_ToolkitControlX11 *base_control, int *real_w, int *real_h, int *reserved_w, int *reserved_h) {
+	SDL_ToolkitListControlX11 *control;
+		
+    control = (SDL_ToolkitListControlX11 *)base_control;
+	*real_w = control->item_area_rect.w;
+	*real_h = control->item_area_rect.h;
+	*reserved_w = control->item_area_reserved_rect.w;
+	*reserved_h = control->item_area_reserved_rect.h;
+}
 
+void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control, int x, int y) {
+	SDL_ToolkitListControlX11 *control;
+		
+    control = (SDL_ToolkitListControlX11 *)base_control;
+    if (x >= 0) {
+		control->item_area_reserved_rect.x = x;
+	}
+    if (y >= 0) {
+		control->item_area_reserved_rect.y = y;
+	}
+    X11Toolkit_DrawWindow(base_control->window);
+}
 
 #endif // SDL_VIDEO_DRIVER_X11

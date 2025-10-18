@@ -38,21 +38,57 @@ void elevate(SDL_ToolkitControlX11 *control, void *data) {
 	X11Toolkit_ElevateSliderControl(slider);
 }
 
+void move_v(SDL_ToolkitControlX11 *control, void *data, int real, int reserved, int offset) {
+	SDL_ToolkitControlX11 *list;
+	int real_w, real_h, reserved_w, reserved_h;
+	double ratio;
+	
+	list = (SDL_ToolkitControlX11 *)data;
+ 	X11Toolkit_GetListControlAreaSize(list, &real_w, &real_h, &reserved_w, &reserved_h);
+	ratio = (double)real_h/(double)real;
+	X11Toolkit_UpdateListControlAreaOffsets(list, -1, SDL_lround((double)offset * ratio));
+}
+
+void move_x(SDL_ToolkitControlX11 *control, void *data, int real, int reserved, int offset) {
+	SDL_ToolkitControlX11 *list;
+	int real_w, real_h, reserved_w, reserved_h;
+	double ratio;
+	
+	list = (SDL_ToolkitControlX11 *)data;
+ 	X11Toolkit_GetListControlAreaSize(list, &real_w, &real_h, &reserved_w, &reserved_h);
+	ratio = (double)real_w/(double)real;
+	X11Toolkit_UpdateListControlAreaOffsets(list, SDL_lround((double)offset * ratio), -1);
+}
+
+void rand_str(char *dest, size_t length) {
+    char charset[] = "0123456789"
+                     "abcdefghijklmnopqrstuvwxyz"
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    while (length-- > 0) {
+        size_t index = (double) rand() / RAND_MAX * (sizeof charset - 1);
+        *dest++ = charset[index];
+    }
+    *dest = '\0';
+}
+
 void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_DialogFileCallback callback, void *userdata, SDL_PropertiesID props) {
 	SDL_ToolkitWindowX11 *window;	
 	SDL_ToolkitControlX11 *entry;
 	SDL_ToolkitControlX11 *button;
 	SDL_ToolkitControlX11 *slider;
+	SDL_ToolkitControlX11 *sliderv;
 	SDL_ToolkitControlX11 *pan;
 	SDL_ToolkitControlX11 *list;
-	SDL_ListNode *list_items;
-	SDL_ToolkitListItemX11 a;
-	SDL_ToolkitListItemX11 b;
-	SDL_ToolkitListItemX11 c;
-	SDL_ToolkitListItemX11 go_up;
+	SDL_ListNode *list_items_list;
+	SDL_ToolkitListItemX11 *list_items;
 	SDL_Window *parent_window;
 	const char *title;
 	SDL_Rect pan_inner_area;
+	int real_w;
+	int real_h;
+	int reserved_w;
+	int reserved_h;
 	
 	parent_window = SDL_GetPointerProperty(props, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, NULL);
 	title = SDL_GetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, NULL); 
@@ -71,12 +107,12 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
  	pan->rect.h = 300;
 	X11Toolkit_GetPanControlInnerArea(pan, &pan_inner_area);
     
-    slider = X11Toolkit_CreateSliderControl(window, false);
-    slider->rect.x = 483;
-	slider->rect.y = 49;
-	slider->rect.h = 251;
-	slider->rect.w = 15;
-	X11Toolkit_NotifyControlOfSizeChange(slider);
+    sliderv = X11Toolkit_CreateSliderControl(window, false);
+    sliderv->rect.x = 483;
+	sliderv->rect.y = 49;
+	sliderv->rect.h = 251;
+	sliderv->rect.w = 15;
+	X11Toolkit_NotifyControlOfSizeChange(sliderv);
 	
 	button = X11Toolkit_CreateIconButtonControl(window, SDL_TOOLKIT_ICON_X11_DOWN_ARROW);
     button->rect.x = 483;
@@ -84,7 +120,7 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
     button->rect.w = 15;
     button->rect.h = 15;
  	X11Toolkit_NotifyControlOfSizeChange(button);
-	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)slider, drop);
+	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)sliderv, drop);
  	
     button = X11Toolkit_CreateIconButtonControl(window, SDL_TOOLKIT_ICON_X11_UP_ARROW);
     button->rect.x = 483;
@@ -92,7 +128,7 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
     button->rect.w = 15;
     button->rect.h = 15;
  	X11Toolkit_NotifyControlOfSizeChange(button);
- 	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)slider, elevate);
+ 	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)sliderv, elevate);
 
 	pan = X11Toolkit_CreateBlockControl(window);
 	pan->rect.x = 483;
@@ -106,7 +142,7 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	slider->rect.h = 15;
 	slider->rect.w = 251;
 	X11Toolkit_NotifyControlOfSizeChange(slider);
-		
+
 	button = X11Toolkit_CreateIconButtonControl(window, SDL_TOOLKIT_ICON_X11_LEFT_ARROW);
     button->rect.x = 202;
     button->rect.y = 315;
@@ -123,27 +159,31 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
  	X11Toolkit_NotifyControlOfSizeChange(button);
 	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)slider, elevate);
 
-	list_items = NULL;
-	go_up.utf8 = "Go Up";
-	go_up.icon = SDL_TOOLKIT_ICON_X11_UP_ARROW;
-	a.utf8 = "Super Mario 64";
-	a.icon = SDL_TOOLKIT_ICON_X11_FILE;
-	b.utf8 = "Star Fox 64";
-	b.icon = SDL_TOOLKIT_ICON_X11_FOLDER;
-	c.utf8 = "F-ZERO X";
-	c.icon = SDL_TOOLKIT_ICON_X11_NONE;
-	SDL_ListAdd(&list_items, &c);
-	SDL_ListAdd(&list_items, &b);
-	SDL_ListAdd(&list_items, &a);
-	SDL_ListAdd(&list_items, &go_up);
-	
-	list = X11Toolkit_CreateListControl(window, "Files", list_items);
+	list_items_list = NULL;
+	list_items = SDL_calloc(10, sizeof(SDL_ToolkitListItemX11));
+	list_items[0].utf8 = "Last one :)";
+	list_items[0].icon = SDL_TOOLKIT_ICON_X11_UP_ARROW;
+	SDL_ListAdd(&list_items_list, &list_items[0]);
+	for (int i = 1; i < 9; i++) {
+		list_items[i].utf8 = SDL_malloc(100);
+		rand_str(list_items[i].utf8, 100);
+		puts(list_items[i].utf8);
+		list_items[i].icon = SDL_TOOLKIT_ICON_X11_FILE;
+		SDL_ListAdd(&list_items_list, &list_items[i]);
+	}
+
+	list = X11Toolkit_CreateListControl(window, "Files", list_items_list);
     list->rect.x = 202;
     list->rect.y = 34;
     list->rect.w = 281;
     list->rect.h = 281;
  	X11Toolkit_NotifyControlOfSizeChange(list);
- 	
+ 	X11Toolkit_GetListControlAreaSize(list, &real_w, &real_h, &reserved_w, &reserved_h);
+ 	X11Toolkit_SetSliderControlSize(sliderv, real_h, reserved_h);
+ 	X11Toolkit_SetSliderControlSize(slider, real_w, reserved_w);
+	X11Toolkit_RegisterSliderControlCallback(slider, list, move_x);
+	X11Toolkit_RegisterSliderControlCallback(sliderv, list, move_v);
+
 	X11Toolkit_CreateWindowRes(window, 640, 480, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
     X11Toolkit_DestroyWindow(window);
