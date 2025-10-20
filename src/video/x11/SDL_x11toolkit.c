@@ -2861,7 +2861,6 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
 {
     SDL_ToolkitEntryControlX11 *entry_control;
     int ascent;
-	int selection_x;
 
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
 
@@ -2884,8 +2883,9 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
     /* Selection */
     X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_selection.pixel);
     if (control->selected && entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
-        selection_x = control->rect.x + entry_control->text_x + entry_control->sel_x;
+		int selection_x;
 
+        selection_x = control->rect.x + entry_control->text_x + entry_control->sel_x;
         X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, selection_x, control->rect.y + entry_control->cur_draw_y1, entry_control->sel_w, entry_control->sel_h);
     }
 
@@ -2940,7 +2940,7 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
 #endif
 		{
 			X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
-							control->rect.x + entry_control->text_x + entry_control->clip_offset + entry_control->sel_x,
+							control->rect.x + entry_control->text_x + entry_control->clip_offset,
 							control->rect.y + entry_control->text_y + ascent,
 							&entry_control->buffer[entry_control->sel] , entry_control->sel_end - entry_control->sel);
 		}
