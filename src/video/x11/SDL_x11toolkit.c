@@ -3061,7 +3061,7 @@ static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *
     }
 }
 
-static bool X11Toolkit_ProcessEntryControlKeyPress(SDL_ToolkitControlX11 *control, SDL_ToolkitEntryControlX11 *entry_control)
+static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *control, SDL_ToolkitEntryControlX11 *entry_control)
 {
     XKeyEvent *xkey;
     KeySym keysym;
@@ -3396,7 +3396,7 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
     return true;
 }
 
-static bool X11Toolkit_ProcessEntryControlClipboard(SDL_ToolkitControlX11 *control, SDL_ToolkitEntryControlX11 *entry_control)
+static bool X11Toolkit_ProcessEntryControlClipboardEvent(SDL_ToolkitControlX11 *control, SDL_ToolkitEntryControlX11 *entry_control)
 {
     if (control->window->e->type == SelectionRequest) { // Copying
         const Atom types[2] = { XA_STRING, entry_control->atom_type };
@@ -3471,7 +3471,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control)
 
     switch (control->window->e->type) {
     case KeyPress:
-        if (!X11Toolkit_ProcessEntryControlKeyPress(control, entry_control)) {
+        if (!X11Toolkit_ProcessEntryControlKeyPressEvent(control, entry_control)) {
             return false;
         }
         break;
@@ -3488,7 +3488,7 @@ static bool X11Toolkit_ProcessEntryControlEvent(SDL_ToolkitControlX11 *control)
     /* Copy / Paste */
     case SelectionRequest:
     case SelectionNotify:
-        if (!X11Toolkit_ProcessEntryControlClipboard(control, entry_control)) {
+        if (!X11Toolkit_ProcessEntryControlClipboardEvent(control, entry_control)) {
             return false;
         }
         break;
