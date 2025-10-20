@@ -160,12 +160,12 @@ typedef struct SDL_ToolkitListControlX11
     XColor xcolor_cream;
 } SDL_ToolkitListControlX11;
 
-typedef enum SDL_ToolkitEntrySelectionDir
+typedef enum SDL_ToolkitEntrySelectionDirectionX11
 {
-    SDL_TOOLKIT_ENTRY_SELECTION_NONE,
-    SDL_TOOLKIT_ENTRY_SELECTION_LEFT,
-    SDL_TOOLKIT_ENTRY_SELECTION_RIGHT,
-} SDL_ToolkitEntrySelectionDir;
+    SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE,
+    SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT,
+    SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT,
+} SDL_ToolkitEntrySelectionDirectionX11;
 
 typedef struct SDL_ToolkitEntryControlX11
 {
@@ -192,7 +192,7 @@ typedef struct SDL_ToolkitEntryControlX11
     SDL_TimerID cur_blink_timer;
 
     /* Selection */
-    SDL_ToolkitEntrySelectionDir sel_dir;
+    SDL_ToolkitEntrySelectionDirectionX11 sel_dir;
     size_t sel;
     size_t sel_end;
     int sel_x;
@@ -2824,7 +2824,7 @@ static size_t X11Toolkit_EraseFromEntryControlBuffer(SDL_ToolkitEntryControlX11 
 
 static void X11Toolkit_ClearEntryControlSelection(SDL_ToolkitEntryControlX11 *entry_control)
 {
-    entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_NONE;
+    entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE;
     entry_control->sel = 0;
     entry_control->sel_end = 0;
 }
@@ -2861,6 +2861,7 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
 {
     SDL_ToolkitEntryControlX11 *entry_control;
     int ascent;
+	int selection_x;
 
     entry_control = (SDL_ToolkitEntryControlX11 *)control;
 
@@ -2882,9 +2883,7 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
 
     /* Selection */
     X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_selection.pixel);
-    if (control->selected && entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
-        int selection_x;
-
+    if (control->selected && entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
         selection_x = control->rect.x + entry_control->text_x + entry_control->sel_x;
 
         X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, selection_x, control->rect.y + entry_control->cur_draw_y1, entry_control->sel_w, entry_control->sel_h);
@@ -2927,6 +2926,25 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
                         control->rect.y + entry_control->text_y + ascent,
                         &entry_control->buffer[entry_control->clip_start], entry_control->clip_end - entry_control->clip_start);
     }
+    
+    /* Selection text */
+    X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_selection_text.pixel);
+    if (control->selected && entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
+ #ifdef X_HAVE_UTF8_STRING
+		if (control->window->utf8) {
+			X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
+								control->rect.x + entry_control->text_x + entry_control->clip_offset  + entry_control->sel_x,
+								control->rect.y + entry_control->text_y + ascent,
+								&entry_control->buffer[entry_control->sel] , entry_control->sel_end - entry_control->sel);
+		} else
+#endif
+		{
+			X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
+							control->rect.x + entry_control->text_x + entry_control->clip_offset + entry_control->sel_x,
+							control->rect.y + entry_control->text_y + ascent,
+							&entry_control->buffer[entry_control->sel] , entry_control->sel_end - entry_control->sel);
+		}
+	}
 }
 
 static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control)
@@ -2983,7 +3001,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control)
     entry_control->clip_offset = 0;
 
     /* Position & Size of selection */
-    if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+    if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
         start_sz = entry_control->sel - entry_control->clip_start;
         if (start_sz < 0) {
             start_sz = 0;
@@ -3016,7 +3034,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control)
 #endif
 }
 
-static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *entry_control, unsigned int keystate, SDL_ToolkitEntrySelectionDir dir)
+static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *entry_control, unsigned int keystate, SDL_ToolkitEntrySelectionDirectionX11 dir)
 {
     // If we hold shift, start selection, otherwise reset
     if (!(keystate & ShiftMask) && !(keystate & ControlMask)) {
@@ -3029,10 +3047,10 @@ static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *
     }
 
     // Start new selection
-    if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+    if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
         entry_control->sel_dir = dir;
 
-        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_LEFT) {
+        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT) {
             entry_control->sel_end = entry_control->old_cur;
         } else {
             entry_control->sel = entry_control->old_cur;
@@ -3040,15 +3058,15 @@ static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *
     }
 
     // Move existing selection
-    if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_LEFT) {
-        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_LEFT) {
+    if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT) {
+        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT) {
             entry_control->sel = entry_control->cur;
         } else {
             entry_control->sel += X11Tookit_FindEntryControlNextCodePointSize(entry_control, entry_control->sel);
         }
 
     } else {
-        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_RIGHT) {
+        if (dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT) {
             entry_control->sel_end = entry_control->cur;
         } else {
             entry_control->sel_end -= X11Tookit_FindEntryControlPrevCodePointSize(entry_control, entry_control->sel_end);
@@ -3081,7 +3099,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             entry_control->cur -= X11Tookit_FindEntryControlPrevCodePointSize(entry_control, entry_control->cur);
         }
 
-        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_LEFT);
+        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT);
         return true;
     }
 
@@ -3091,7 +3109,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             entry_control->cur += X11Tookit_FindEntryControlNextCodePointSize(entry_control, entry_control->cur);
         }
 
-        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_RIGHT);
+        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT);
         return true;
     }
 
@@ -3104,7 +3122,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
         }
 
         // erase the selection if its present
-        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
             X11Toolkit_EraseEntryControlSelection(entry_control);
             return true;
         }
@@ -3131,7 +3149,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
         }
 
         // erase the selection if its present
-        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
             X11Toolkit_EraseEntryControlSelection(entry_control);
             return true;
         }
@@ -3154,7 +3172,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             break;
         }
 
-        entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_RIGHT;
+        entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT;
         entry_control->sel = 0;
         entry_control->sel_end = entry_control->sz;
         entry_control->cur = entry_control->sz;
@@ -3172,7 +3190,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             break;
         }
 
-        if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+        if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
             break;
         }
 
@@ -3253,7 +3271,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
     }
 
     // erase the selection if its present
-    if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+    if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
         X11Toolkit_EraseEntryControlSelection(entry_control);
     }
 
@@ -3307,12 +3325,12 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
         // If shift is held, we instead do quick-select
         if (xbutton->state & ShiftMask) {
             if (entry_control->cur <= i) {
-                entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_RIGHT;
+                entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT;
                 entry_control->sel = entry_control->cur;
                 entry_control->sel_end = i;
             } else {
 
-                entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_LEFT;
+                entry_control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT;
                 entry_control->sel_end = entry_control->cur;
                 entry_control->sel = i;
             }
@@ -3379,10 +3397,10 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
 
         // set the direction relative to start of selection
         entry_control->sel_dir = entry_control->sel_held_x <= x
-                                     ? SDL_TOOLKIT_ENTRY_SELECTION_LEFT
-                                     : SDL_TOOLKIT_ENTRY_SELECTION_RIGHT;
+                                     ? SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT
+                                     : SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT;
 
-        if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_LEFT) {
+        if (entry_control->sel_dir == SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT) {
             entry_control->sel = entry_control->sel_held_i;
             entry_control->sel_end = i;
         } else {
@@ -3450,7 +3468,7 @@ static bool X11Toolkit_ProcessEntryControlClipboardEvent(SDL_ToolkitControlX11 *
             return false;
         }
 
-        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_NONE) {
+        if (entry_control->sel_dir != SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE) {
             X11Toolkit_EraseEntryControlSelection(entry_control);
         }
 
@@ -3530,12 +3548,10 @@ static void X11Toolkit_OnEntryControlStateChange(SDL_ToolkitControlX11 *base_con
     case SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL:
         X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_normal);
         break;
-
     case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
     case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD:
         X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
         break;
-
     case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
         X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
         if (base_control->window->focused_control) {
@@ -3544,7 +3560,6 @@ static void X11Toolkit_OnEntryControlStateChange(SDL_ToolkitControlX11 *base_con
         base_control->selected = true;
         base_control->window->focused_control = base_control;
         break;
-
     default:
         break;
     }
@@ -3601,8 +3616,7 @@ static void X11Toolkit_DestroyEntryControl(SDL_ToolkitControlX11 *control)
     SDL_free(entry_control);
 }
 
-/* Special thanks to m-doescode on Github for helping me with the entry control */
-/* TODO: Move cursor with mouse, selections (both with mouse and shift+arrow keys), clipboard */
+/* Special thanks to m-doescode and savfrom4 on Github for helping me with the entry control */
 SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *window)
 {
     SDL_ToolkitEntryControlX11 *control;
@@ -3638,7 +3652,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateEntryControl(SDL_ToolkitWindowX11 *windo
     control->cur_blink_timer = SDL_AddTimer(500, X11Toolkit_BlinkEntryControlCursor, control);
 
     /* selection */
-    control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_NONE;
+    control->sel_dir = SDL_TOOLKIT_ENTRY_SELECTION_X11_NONE;
     control->sel = 0;
     control->sel_end = 0;
     control->sel_x = 0;
