@@ -4468,7 +4468,7 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
         rect = &item->rect;
         item->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
         if ((x >= rect->x) &&
-            (x <= (rect->x + rect->w)) &&
+            (x <= (rect->x + control->item_area_rect.w)) &&
             (y >= rect->y) &&
             (y <= (rect->y + rect->h))) {
             fiddled_item = item;
