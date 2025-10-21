@@ -3045,7 +3045,7 @@ static void X11Toolkit_ScrollEntryControl(SDL_ToolkitControlX11 *control)
 #endif
 }
 
-static void X11Toolkit_ProecssEntryControlSelection(SDL_ToolkitEntryControlX11 *entry_control, unsigned int keystate, SDL_ToolkitEntrySelectionDirectionX11 dir)
+static void X11Toolkit_ProcessEntryControlSelection(SDL_ToolkitEntryControlX11 *entry_control, unsigned int keystate, SDL_ToolkitEntrySelectionDirectionX11 dir)
 {
     // If we hold shift, start selection, otherwise reset
     if (!(keystate & ShiftMask) && !(keystate & ControlMask)) {
@@ -3110,7 +3110,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             entry_control->cur -= X11Tookit_FindEntryControlPrevCodePointSize(entry_control, entry_control->cur);
         }
 
-        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT);
+        X11Toolkit_ProcessEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT);
         return true;
     }
 
@@ -3120,7 +3120,7 @@ static bool X11Toolkit_ProcessEntryControlKeyPressEvent(SDL_ToolkitControlX11 *c
             entry_control->cur += X11Tookit_FindEntryControlNextCodePointSize(entry_control, entry_control->cur);
         }
 
-        X11Toolkit_ProecssEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT);
+        X11Toolkit_ProcessEntryControlSelection(entry_control, keystate, SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT);
         return true;
     }
 
@@ -4425,7 +4425,13 @@ static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_contr
         }
 	} else if (base_control->window->e->type == KeyPress) {
 		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
-		if (keysym == XK_Control_L || keysym == XK_Control_R) {
+		if (keysym == XK_Control_L || keysym == XK_Control_R || keysym == XK_Shift_L || keysym == XK_Shift_R) {
+			control->modifiers = true;
+		}
+		if (base_control->window->e->xkey.state & ControlMask) {
+			control->modifiers = true;
+		}
+		if (base_control->window->e->xkey.state & ShiftMask) {
 			control->modifiers = true;
 		}
 	}
@@ -4488,7 +4494,7 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
 					fiddled_item->click_count = 0;
 				}
 				fiddled_item->click_count++;
-			}
+			} 
             base_control->window->draw = true;
             control->item_area_rendered = false;
         }
