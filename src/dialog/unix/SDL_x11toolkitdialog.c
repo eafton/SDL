@@ -160,11 +160,11 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	X11Toolkit_RegisterCallbackForButtonControl(button, (void*)slider, elevate);
 
 	list_items_list = NULL;
-	list_items = SDL_calloc(99, sizeof(SDL_ToolkitListItemX11));
+	list_items = SDL_calloc(10, sizeof(SDL_ToolkitListItemX11));
 	list_items[0].utf8 = "Last one :)";
 	list_items[0].icon = SDL_TOOLKIT_ICON_X11_UP_ARROW;
 	SDL_ListAdd(&list_items_list, &list_items[0]);
-	for (int i = 1; i < 98; i++) {
+	for (int i = 1; i < 9; i++) {
 		list_items[i].utf8 = SDL_malloc(100);
 		rand_str(list_items[i].utf8, 100);
 		puts(list_items[i].utf8);
@@ -183,8 +183,7 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
  	X11Toolkit_SetSliderControlSize(slider, real_w, reserved_w);
 	X11Toolkit_RegisterSliderControlCallback(slider, list, move_x);
 	X11Toolkit_RegisterSliderControlCallback(sliderv, list, move_v);
-	X11Toolkit_EnableListControlMultiSelect(list);
-	
+
 	X11Toolkit_CreateWindowRes(window, 640, 480, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
     X11Toolkit_DestroyWindow(window);
