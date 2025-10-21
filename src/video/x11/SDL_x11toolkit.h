@@ -303,6 +303,7 @@ extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SD
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items);
 extern void X11Toolkit_GetListControlAreaSize(SDL_ToolkitControlX11 *base_control, int *real_w, int *real_h, int *reserved_w, int *reserved_h);
 extern void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control, int x, int y);
+extern void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control);
 
 #endif // SDL_VIDEO_DRIVER_X11
 

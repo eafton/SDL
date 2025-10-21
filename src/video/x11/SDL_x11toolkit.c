@@ -152,7 +152,12 @@ typedef struct SDL_ToolkitListControlX11
     SDL_Rect item_area_rect;
     SDL_Rect item_area_reserved_rect;
     bool item_area_rendered;
-
+    
+    /* Selection */
+	SDL_ListNode *selected_items;
+	bool allow_multi_select;
+	bool multi_selected;
+	
     /* Colors */
     XColor xcolor_black;
     XColor xcolor_green;
@@ -2941,14 +2946,14 @@ static void X11Toolkit_DrawEntryControl(SDL_ToolkitControlX11 *control)
             X11_Xutf8DrawString(control->window->display, control->window->drawable, control->window->font_set, control->window->ctx,
                                 control->rect.x + entry_control->text_x + entry_control->clip_offset + entry_control->sel_x,
                                 control->rect.y + entry_control->text_y + ascent,
-                                &entry_control->buffer[entry_control->sel], entry_control->sel_end - entry_control->sel);
+                                &entry_control->buffer[SDL_max(entry_control->sel, entry_control->clip_start)], SDL_min(entry_control->sel_end - entry_control->sel, entry_control->clip_end - entry_control->clip_start));
         } else
 #endif
         {
             X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx,
                             control->rect.x + entry_control->text_x + entry_control->clip_offset,
                             control->rect.y + entry_control->text_y + ascent,
-                            &entry_control->buffer[entry_control->sel], entry_control->sel_end - entry_control->sel);
+                            &entry_control->buffer[SDL_max(entry_control->sel, entry_control->clip_start)], SDL_min(entry_control->sel_end - entry_control->sel, entry_control->clip_end - entry_control->clip_start));
         }
     }
 }
@@ -3751,7 +3756,12 @@ static void X11Toolkit_DrawSliderControl(SDL_ToolkitControlX11 *base_control)
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].pixel);
         break;
     }
-    X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale, control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
+    
+    if (!base_control->selected) {
+		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale, control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
+	} else {
+		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 3 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 3 * base_control->window->iscale, control->handle_rect.w - 6 * base_control->window->iscale, control->handle_rect.h - 6 * base_control->window->iscale);
+	} 
 }
 
 static void X11Toolkit_CalculateSliderControl(SDL_ToolkitControlX11 *base_control)
@@ -3907,7 +3917,7 @@ static bool X11Toolkit_ProcessSliderControlEvent(SDL_ToolkitControlX11 *base_con
 {
     SDL_ToolkitSliderControlX11 *control;
 
-    control = (SDL_ToolkitEntryControlX11 *)base_control;
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
     
 	if (base_control->window->e->type == KeyPress) {
 		KeySym keysym;
@@ -4282,13 +4292,17 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
         cursor = control->items;
         while (cursor) {
             SDL_ToolkitListItemX11 *item;
-
+			SDL_ListNode *select_cursor;
+			bool select;
+			
             item = cursor->entry;
-
+			select = false;
+			
             switch (item->state) {
             case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection.pixel);
-                break;
+				select = true;
+               break;
             case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_hover.pixel);
                 break;
@@ -4296,6 +4310,16 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_bg.pixel);
                 break;
             }
+            
+            select_cursor = control->selected_items;
+            while (select_cursor) {
+				if (select_cursor->entry == item) {
+					X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection.pixel);
+					select = true;
+				}
+				select_cursor = select_cursor->next;
+			}
+
             X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x, item->rect.y, control->item_area_rect.w, item->rect.h);
 
             switch (item->icon) {
@@ -4348,7 +4372,7 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
                 break;
             }
 
-            if (item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+            if (select) {
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection_text.pixel);
             } else {
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
@@ -4374,6 +4398,35 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
     }
 }
 
+static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitListControlX11 *control;
+
+    control = (SDL_ToolkitListControlX11 *)base_control;
+    
+	if (base_control->window->e->type == KeyPress) {
+		KeySym keysym;
+		
+		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
+
+		switch (keysym) {
+            case XK_Escape:
+				if (control->selected_items) {
+					control->item_area_rendered = false;
+					SDL_ListClear(&control->selected_items);
+					X11Toolkit_DrawWindow(base_control->window);
+					return true;
+				}
+				break;
+            default:
+                return false;
+                break;
+        }
+	}
+	
+	return false;
+}
+
 static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_control)
 {
     SDL_ToolkitListControlX11 *control;
@@ -4392,7 +4445,12 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
     y -= base_control->rect.y;
     x += control->item_area_reserved_rect.x;
     y += control->item_area_reserved_rect.y;
-    while (cursor) {
+    
+    if (!control->allow_multi_select && (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD)) {
+		SDL_ListClear(&control->selected_items);
+	}
+	
+	while (cursor) {
         SDL_ToolkitListItemX11 *item;
         SDL_Rect *rect;
 
@@ -4408,10 +4466,23 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
             base_control->window->draw = true;
             control->item_area_rendered = false;
         }
-
+        
         cursor = cursor->next;
     }
     
+    if (fiddled_item) {
+		if (fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
+			SDL_ListAdd(&control->selected_items, fiddled_item);
+		}
+	}
+}
+
+extern void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control) {
+    SDL_ToolkitListControlX11 *control;
+
+    control = (SDL_ToolkitListControlX11 *)base_control;
+    
+	control->allow_multi_select = true;
 }
 
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items)
@@ -4434,7 +4505,7 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
     base_control->func_on_state_change = X11Toolkit_OnListControlStateChange;
     base_control->func_free = X11Toolkit_DestroyGenericControl;
     base_control->func_on_scale_change = NULL;
-    base_control->func_process_event = NULL;
+    base_control->func_process_event = X11Toolkit_ProcessListControlEvent;
     base_control->selected = true;
     base_control->dynamic = true;
     base_control->is_default_enter = false;
@@ -4449,6 +4520,11 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
     }
     control->items = items;
     control->item_area = None;
+
+	/* selection */ 
+	control->selected_items = NULL;
+	control->allow_multi_select = false;
+	control->multi_selected = false;
 
     /* colors */
     control->xcolor_green.flags = 0;
