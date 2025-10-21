@@ -251,12 +251,16 @@ typedef struct SDL_ToolkitListItemX11
 {
     const char *utf8;
     SDL_ToolkitIconX11 icon;
-
+	bool no_multi_select;
+	void *cb_data;
+    void (*cb)(struct SDL_ToolkitListItemX11 *, void *);
+	
     /* Internal use */
     size_t utf8_len;
     SDL_Rect rect;
     SDL_Rect text_rect;
     SDL_Rect icon_rect;
+    char click_count;
     SDL_ToolkitControlStateX11 state;
 } SDL_ToolkitListItemX11;
 

@@ -4176,6 +4176,7 @@ static void X11Toolkit_CalculateListControl(SDL_ToolkitControlX11 *base_control)
 
             item = cursor->entry;
 
+			item->click_count = 0;
             item->utf8_len = SDL_strlen(item->utf8);
             X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_len, &item->text_rect.w, &item->text_rect.h, &ascent, &descent, NULL);
             switch (item->icon) {
@@ -4463,16 +4464,29 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
 	while (cursor) {
         SDL_ToolkitListItemX11 *item;
         SDL_Rect *rect;
-
+		SDL_ToolkitControlStateX11 prev;
+      
         item = cursor->entry;
         rect = &item->rect;
+        prev = item->state;
         item->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
         if ((x >= rect->x) &&
             (x <= (rect->x + control->item_area_rect.w)) &&
             (y >= rect->y) &&
             (y <= (rect->y + rect->h))) {
-            fiddled_item = item;
-            fiddled_item->state = base_control->state;
+			
+			fiddled_item = item;
+			fiddled_item->state = base_control->state;
+			if (control->allow_multi_select && fiddled_item->no_multi_select && (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD)) {
+				SDL_ListClear(&control->selected_items);
+			}
+			if (prev == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD && fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+				if (fiddled_item->cb && fiddled_item->click_count == 2) {
+					fiddled_item->cb(item, fiddled_item->cb_data);
+					fiddled_item->click_count = 0;
+				}
+				fiddled_item->click_count++;
+			}
             base_control->window->draw = true;
             control->item_area_rendered = false;
         }
