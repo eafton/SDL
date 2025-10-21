@@ -156,7 +156,6 @@ typedef struct SDL_ToolkitListControlX11
     /* Selection */
 	SDL_ListNode *selected_items;
 	bool allow_multi_select;
-	bool multi_selected;
 	unsigned int modifiers;
 	
     /* Colors */
@@ -4547,7 +4546,6 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window
 	/* selection */ 
 	control->selected_items = NULL;
 	control->allow_multi_select = false;
-	control->multi_selected = false;
 	control->modifiers = 0;
 	
     /* colors */
