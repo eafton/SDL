@@ -24,10 +24,10 @@
 #define SDL_x11toolkit_h_
 
 #include "../../SDL_list.h"
-#include "SDL_x11video.h"
 #include "SDL_x11dyn.h"
-#include "SDL_x11settings.h"
 #include "SDL_x11toolkit.h"
+#include "SDL_x11video.h"
+#include "SDL_x11settings.h"
 #include "xsettings-client.h"
 #ifdef HAVE_FRIBIDI_H
 #include "../../core/unix/SDL_fribidi.h"
@@ -36,7 +36,7 @@
 #ifdef SDL_VIDEO_DRIVER_X11
 
 /* Various predefined paddings */
-#define SDL_TOOLKIT_X11_ELEMENT_PADDING 4
+#define SDL_TOOLKIT_X11_ELEMENT_PADDING   4
 #define SDL_TOOLKIT_X11_ELEMENT_PADDING_2 12
 #define SDL_TOOLKIT_X11_ELEMENT_PADDING_3 8
 #define SDL_TOOLKIT_X11_ELEMENT_PADDING_4 16
@@ -72,9 +72,9 @@ typedef struct SDL_ToolkitWindowX11
     Window window;
     Drawable drawable;
 #ifndef NO_SHARED_MEMORY
-	XImage *image;
-	XShmSegmentInfo shm_info;
-	int shm_bytes_per_line;
+    XImage *image;
+    XShmSegmentInfo shm_info;
+    int shm_bytes_per_line;
 #endif
 
     /* Visuals and drawing */
@@ -94,15 +94,15 @@ typedef struct SDL_ToolkitWindowX11
     bool xrandr; // Whether Xrandr is present or not
 #endif
 #ifndef NO_SHARED_MEMORY
-	bool shm;
-	Bool shm_pixmap;
+    bool shm;
+    Bool shm_pixmap;
 #endif
     bool utf8;
-    
+
 #ifdef X_HAVE_UTF8_STRING
-	/* IME */
-	XIM im;
-	XIC ic;
+    /* IME */
+    XIM im;
+    XIC ic;
 #endif
 
     /* Atoms */
@@ -138,6 +138,7 @@ typedef struct SDL_ToolkitWindowX11
     XColor xcolor_light_control_bg;
     XColor xcolor_light_control_selection;
     XColor xcolor_light_control_selection_text;
+    XColor xcolor_light_control_hover;
 
     /* Control list */
     bool has_focus;
@@ -172,8 +173,8 @@ typedef struct SDL_ToolkitWindowX11
 
 #ifdef HAVE_FRIBIDI_H
     /* BIDI engine */
-	SDL_FriBidi *fribidi;
-	bool do_shaping;
+    SDL_FriBidi *fribidi;
+    bool do_shaping;
 #endif
 
     /* Cursors */
@@ -185,7 +186,7 @@ typedef enum SDL_ToolkitControlStateX11
 {
     SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL,
     SDL_TOOLKIT_CONTROL_STATE_X11_HOVER,
-    SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED, /* Key/Button Up */
+    SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED,      /* Key/Button Up */
     SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD, /* Key/Button Down */
     SDL_TOOLKIT_CONTROL_STATE_X11_DISABLED
 } SDL_ToolkitControlStateX11;
@@ -199,9 +200,9 @@ typedef struct SDL_ToolkitControlX11
     bool dynamic;
     bool is_default_enter;
     bool is_default_esc;
-	bool do_size;
-	bool captures_lr_arrows;
-	bool special_focus;
+    bool do_size;
+    bool captures_lr_arrows;
+    bool special_focus;
 
     /* User data */
     void *data;
@@ -240,17 +241,17 @@ typedef enum SDL_ToolkitIconX11
     SDL_TOOLKIT_ICON_X11_NONE,
     SDL_TOOLKIT_ICON_X11_UP_ARROW,
     SDL_TOOLKIT_ICON_X11_DOWN_ARROW,
-	SDL_TOOLKIT_ICON_X11_LEFT_ARROW,
-	SDL_TOOLKIT_ICON_X11_RIGHT_ARROW,
-	SDL_TOOLKIT_ICON_X11_FILE,
-	SDL_TOOLKIT_ICON_X11_FOLDER
+    SDL_TOOLKIT_ICON_X11_LEFT_ARROW,
+    SDL_TOOLKIT_ICON_X11_RIGHT_ARROW,
+    SDL_TOOLKIT_ICON_X11_FILE,
+    SDL_TOOLKIT_ICON_X11_FOLDER
 } SDL_ToolkitIconX11;
 
 typedef struct SDL_ToolkitListItemX11
 {
     const char *utf8;
     SDL_ToolkitIconX11 icon;
-    
+
     /* Internal use */
     size_t utf8_len;
     SDL_Rect rect;
@@ -298,7 +299,7 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateBlockControl(SDL_ToolkitWindowX11
 
 /* LIST FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window);
-extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect); 
+extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect);
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items);
 extern void X11Toolkit_GetListControlAreaSize(SDL_ToolkitControlX11 *base_control, int *real_w, int *real_h, int *reserved_w, int *reserved_h);
 extern void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control, int x, int y);
