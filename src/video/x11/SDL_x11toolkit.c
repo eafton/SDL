@@ -4460,7 +4460,6 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
 			SDL_ListClear(&control->selected_items);
 		}
 	}
-
 	
 	while (cursor) {
         SDL_ToolkitListItemX11 *item;
@@ -4493,7 +4492,7 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
 	}
 }
 
-extern void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control) {
+void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control) {
     SDL_ToolkitListControlX11 *control;
 
     control = (SDL_ToolkitListControlX11 *)base_control;
@@ -4501,7 +4500,15 @@ extern void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_
 	control->allow_multi_select = true;
 }
 
-extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items)
+SDL_ListNode *X11Toolkit_GetListControlSelection(SDL_ToolkitControlX11 *base_control) {
+    SDL_ToolkitListControlX11 *control;
+
+    control = (SDL_ToolkitListControlX11 *)base_control;
+
+	return control->selected_items;
+}
+
+SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items)
 {
     SDL_ToolkitListControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
