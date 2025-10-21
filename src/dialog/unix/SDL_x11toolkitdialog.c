@@ -183,7 +183,8 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
  	X11Toolkit_SetSliderControlSize(slider, real_w, reserved_w);
 	X11Toolkit_RegisterSliderControlCallback(slider, list, move_x);
 	X11Toolkit_RegisterSliderControlCallback(sliderv, list, move_v);
-
+	X11Toolkit_EnableListControlMultiSelect(list);
+	
 	X11Toolkit_CreateWindowRes(window, 640, 480, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
     X11Toolkit_DestroyWindow(window);

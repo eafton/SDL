@@ -157,6 +157,7 @@ typedef struct SDL_ToolkitListControlX11
 	SDL_ListNode *selected_items;
 	bool allow_multi_select;
 	bool multi_selected;
+	unsigned int modifiers;
 	
     /* Colors */
     XColor xcolor_black;
@@ -4343,7 +4344,6 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
                 points[1].y = item->rect.y + item->icon_rect.y + item->icon_rect.h - 1 * base_control->window->iscale;
                 points[2].x = item->rect.x + item->icon_rect.x + item->icon_rect.w - 2 * base_control->window->iscale;
                 points[2].y = item->rect.y + item->icon_rect.y + item->icon_rect.h - 1 * base_control->window->iscale;
-
                 X11_XFillPolygon(base_control->window->display, control->item_area, base_control->window->ctx, points, 3, Convex, CoordModeOrigin);
             } break;
             case SDL_TOOLKIT_ICON_X11_FILE:
@@ -4404,8 +4404,10 @@ static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_contr
 
     control = (SDL_ToolkitListControlX11 *)base_control;
     
-	if (base_control->window->e->type == KeyPress) {
+	if (base_control->window->e->type == KeyRelease) {
 		KeySym keysym;
+		
+		control->modifiers = 0;
 		
 		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
 
@@ -4422,6 +4424,8 @@ static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_contr
                 return false;
                 break;
         }
+	} else if (base_control->window->e->type == KeyPress) {
+		control->modifiers = base_control->window->e->xkey.state;
 	}
 	
 	return false;
@@ -4446,9 +4450,17 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
     x += control->item_area_reserved_rect.x;
     y += control->item_area_reserved_rect.y;
     
-    if (!control->allow_multi_select && (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD)) {
-		SDL_ListClear(&control->selected_items);
+    if (control->allow_multi_select) {
+		if (!control->modifiers) {
+			goto CLEAR_SELECTION;
+		}
+	} else {
+		CLEAR_SELECTION:
+		if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
+			SDL_ListClear(&control->selected_items);
+		}
 	}
+
 	
 	while (cursor) {
         SDL_ToolkitListItemX11 *item;
@@ -4473,6 +4485,10 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
     if (fiddled_item) {
 		if (fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
 			SDL_ListAdd(&control->selected_items, fiddled_item);
+		}
+	} else {
+		if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
+			SDL_ListClear(&control->selected_items);
 		}
 	}
 }
@@ -4525,7 +4541,8 @@ extern SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 
 	control->selected_items = NULL;
 	control->allow_multi_select = false;
 	control->multi_selected = false;
-
+	control->modifiers = 0;
+	
     /* colors */
     control->xcolor_green.flags = 0;
     control->xcolor_green.red = 0;
