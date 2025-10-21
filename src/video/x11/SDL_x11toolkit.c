@@ -156,7 +156,7 @@ typedef struct SDL_ToolkitListControlX11
     /* Selection */
 	SDL_ListNode *selected_items;
 	bool allow_multi_select;
-	unsigned int modifiers;
+	bool modifiers;
 	
     /* Colors */
     XColor xcolor_black;
@@ -4401,13 +4401,12 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
 static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_control)
 {
     SDL_ToolkitListControlX11 *control;
+	KeySym keysym;
 
     control = (SDL_ToolkitListControlX11 *)base_control;
     
 	if (base_control->window->e->type == KeyRelease) {
-		KeySym keysym;
-		
-		control->modifiers = 0;
+		control->modifiers = false;
 		
 		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
 
@@ -4425,7 +4424,10 @@ static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_contr
                 break;
         }
 	} else if (base_control->window->e->type == KeyPress) {
-		control->modifiers = base_control->window->e->xkey.state;
+		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
+		if (keysym == XK_Control_L || keysym == XK_Control_R) {
+			control->modifiers = true;
+		}
 	}
 	
 	return false;
@@ -4560,7 +4562,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window
 	/* selection */ 
 	control->selected_items = NULL;
 	control->allow_multi_select = false;
-	control->modifiers = 0;
+	control->modifiers = false;
 	
     /* colors */
     control->xcolor_green.flags = 0;
