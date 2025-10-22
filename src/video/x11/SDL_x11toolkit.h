@@ -292,6 +292,7 @@ extern void X11Toolkit_SetEntryControlText(SDL_ToolkitControlX11 *control, const
 /* BUTTON CONTROL FUNCTIONS */
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);
 extern SDL_ToolkitControlX11 *X11Toolkit_CreateIconButtonControl(SDL_ToolkitWindowX11 *window, SDL_ToolkitIconX11 icon);
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateDropDownButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data);
 extern void X11Toolkit_RegisterCallbackForButtonControl(SDL_ToolkitControlX11 *control, void *data, void (*cb)(SDL_ToolkitControlX11 *, void *));
 extern const SDL_MessageBoxButtonData *X11Toolkit_GetButtonControlData(SDL_ToolkitControlX11 *control);
 

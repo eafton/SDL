@@ -86,7 +86,11 @@ typedef struct SDL_ToolkitButtonControlX11
 #ifdef HAVE_FRIBIDI_H
     char *text;
     bool free_text;
-#endif
+#endif	
+
+	/* Dropdown */
+	SDL_Rect arrow_rect;
+	bool dropdown;
 
     /* Callback */
     void *cb_data;
@@ -2006,6 +2010,10 @@ static void X11Toolkit_CalculateButtonControl(SDL_ToolkitControlX11 *control)
 
     if (button_control->data) {
         X11Toolkit_GetTextWidthHeight(control->window, button_control->data->text, button_control->str_sz, &button_control->text_rect.w, &button_control->text_rect.h, &button_control->text_a, &text_d, NULL);
+		if (button_control->dropdown) {
+			button_control->arrow_rect.w = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
+			button_control->arrow_rect.h = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
+		}
     } else {
         switch (button_control->icon) {
         case SDL_TOOLKIT_ICON_X11_UP_ARROW:
@@ -2031,14 +2039,24 @@ static void X11Toolkit_CalculateButtonControl(SDL_ToolkitControlX11 *control)
         } else {
             control->rect.w = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.w;
             control->rect.h = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.h;
+            if (button_control->dropdown) {
+				control->rect.w += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w;
+			}
         }
     }
 
-    button_control->text_rect.x = (control->rect.w - button_control->text_rect.w) / 2;
     button_control->text_rect.y = (control->rect.h - button_control->text_rect.h) / 2;
+	if (button_control->dropdown) {
+		button_control->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale;
+		button_control->arrow_rect.y = (control->rect.h - button_control->arrow_rect.h) / 2;
+		button_control->arrow_rect.x = control->rect.w - (SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w);
+	} else {
+		button_control->text_rect.x = (control->rect.w - button_control->text_rect.w) / 2;
+	}
     if (button_control->data) {
         button_control->text_rect.y += button_control->text_a;
     }
+
 }
 
 static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control)
@@ -2194,6 +2212,19 @@ static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control)
 
         X11_XFillPolygon(control->window->display, control->window->drawable, control->window->ctx, points, 3, Convex, CoordModeOrigin);
     }
+    
+    if (button_control->dropdown) {
+        XPoint points[3];
+
+		points[0].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w / 2;
+		points[0].y = control->rect.y + button_control->arrow_rect.y + button_control->arrow_rect.h;
+		points[1].x = control->rect.x + button_control->arrow_rect.x;
+		points[1].y = control->rect.y + button_control->arrow_rect.y;
+		points[2].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w;
+		points[2].y = control->rect.y + button_control->arrow_rect.y;
+		
+        X11_XFillPolygon(control->window->display, control->window->drawable, control->window->ctx, points, 3, Convex, CoordModeOrigin);
+	}
 }
 
 static void X11Toolkit_OnButtonControlStateChange(SDL_ToolkitControlX11 *control)
@@ -2224,7 +2255,7 @@ static void X11Toolkit_DestroyButtonControl(SDL_ToolkitControlX11 *control)
     SDL_free(control);
 }
 
-SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data, SDL_ToolkitIconX11 icon)
+SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data, SDL_ToolkitIconX11 icon, bool dropdown)
 {
     SDL_ToolkitButtonControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
@@ -2267,7 +2298,8 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
     }
     control->icon = icon;
     control->cb = NULL;
-
+	control->dropdown = dropdown;
+	
 #ifdef HAVE_FRIBIDI_H
     if (data) {
         if (base_control->window->fribidi) {
@@ -2297,14 +2329,18 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
     return base_control;
 }
 
+SDL_ToolkitControlX11 *X11Toolkit_CreateDropDownButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data) {
+    return X11Toolkit_CreateCommonButtonControl(window, data, SDL_TOOLKIT_ICON_X11_NONE, true);	
+}
+
 SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data)
 {
-    return X11Toolkit_CreateCommonButtonControl(window, data, SDL_TOOLKIT_ICON_X11_NONE);
+    return X11Toolkit_CreateCommonButtonControl(window, data, SDL_TOOLKIT_ICON_X11_NONE, false);
 }
 
 SDL_ToolkitControlX11 *X11Toolkit_CreateIconButtonControl(SDL_ToolkitWindowX11 *window, SDL_ToolkitIconX11 icon)
 {
-    return X11Toolkit_CreateCommonButtonControl(window, NULL, icon);
+    return X11Toolkit_CreateCommonButtonControl(window, NULL, icon, false);
 }
 
 void X11Toolkit_RegisterCallbackForButtonControl(SDL_ToolkitControlX11 *control, void *data, void (*cb)(struct SDL_ToolkitControlX11 *, void *))

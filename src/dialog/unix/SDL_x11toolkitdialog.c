@@ -49,6 +49,57 @@ void move_v(SDL_ToolkitControlX11 *control, void *data, int real, int reserved, 
 	X11Toolkit_UpdateListControlAreaOffsets(list, -1, SDL_lround((double)offset * ratio));
 }
 
+void menu(SDL_ToolkitControlX11 *control, void *data) {
+	SDL_ToolkitWindowX11 *window;
+	SDL_ToolkitWindowX11 *menu_window;
+	SDL_ToolkitControlX11 *menu_control;
+	SDL_ToolkitMenuItemX11 a;
+	SDL_ToolkitMenuItemX11 b;
+	SDL_ToolkitMenuItemX11 c;
+	SDL_ListNode *menu_items;
+	Window dummy;
+    int x, y;
+    
+	menu_items = NULL;
+	
+	a.utf8 = "text";
+    a.checkbox = false;
+    a.checked = false;
+    a.disabled = false;
+    a.seperator = false;
+	a.cb = NULL;
+    a.sub_menu = NULL;
+    SDL_ListAdd(&menu_items, &a);
+   
+	b.utf8 = "RFGRWRGG";
+    b.checkbox = false;
+    b.checked = false;
+    b.disabled = false;
+    b.seperator = false;
+	b.cb = NULL;
+    b.sub_menu = NULL;
+    SDL_ListAdd(&menu_items, &b);
+    
+	c.utf8 = "starfox";
+    c.checkbox = false;
+    c.checked = false;
+    c.disabled = false;
+    c.seperator = false;
+	c.cb = NULL;
+    c.sub_menu = NULL;
+    SDL_ListAdd(&menu_items, &c);
+     
+	window = (SDL_ToolkitWindowX11 *)data;
+	X11_XTranslateCoordinates(window->display, window->window, RootWindow(window->display, window->screen), control->rect.x, control->rect.y + control->rect.h, &x, &y, &dummy);
+	menu_window = X11Toolkit_CreateWindowStruct(NULL, window, SDL_TOOLKIT_WINDOW_MODE_X11_MENU, window->color_hints, false);
+	SDL_ListAdd(&window->popup_windows, menu_window);
+	menu_control = X11Toolkit_CreateMenuControl(menu_window, menu_items);
+	menu_control->rect.w = control->rect.w;
+	X11Toolkit_CreateWindowRes(menu_window, menu_control->rect.w, menu_control->rect.h, x, y, NULL);
+	X11Toolkit_DoWindowEventLoop(menu_window);
+	X11Toolkit_DestroyWindow(menu_window);
+}
+
 void move_x(SDL_ToolkitControlX11 *control, void *data, int real, int reserved, int offset) {
 	SDL_ToolkitControlX11 *list;
 	int real_w, real_h, reserved_w, reserved_h;
@@ -82,6 +133,8 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	SDL_ToolkitControlX11 *list;
 	SDL_ListNode *list_items_list;
 	SDL_ToolkitListItemX11 *list_items;
+	SDL_ToolkitControlX11 *dropdown;
+	SDL_MessageBoxButtonData dropdown_data;
 	SDL_Window *parent_window;
 	const char *title;
 	SDL_Rect pan_inner_area;
@@ -188,6 +241,13 @@ void SDL_X11Toolkit_ShowFileDialogWithProperties(SDL_FileDialogType type, SDL_Di
 	X11Toolkit_RegisterSliderControlCallback(slider, list, move_x);
 	X11Toolkit_RegisterSliderControlCallback(sliderv, list, move_v);
 	X11Toolkit_EnableListControlMultiSelect(list);
+	
+	dropdown_data.flags = 0;
+	dropdown_data.text = "Text Files (.txt)";
+	dropdown = X11Toolkit_CreateDropDownButtonControl(window, &dropdown_data);
+    dropdown->rect.x = 16;
+	dropdown->rect.y = 200;
+	X11Toolkit_RegisterCallbackForButtonControl(dropdown, window, menu);
 	
 	X11Toolkit_CreateWindowRes(window, 640, 480, 0, 0, (char *)title);
     X11Toolkit_DoWindowEventLoop(window);
