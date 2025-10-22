@@ -222,11 +222,13 @@ typedef struct SDL_ToolkitMenuItemX11
     bool checkbox;
     bool checked;
     bool disabled;
-    void *cb_data;
+    bool seperator;
+	void *cb_data;
     void (*cb)(struct SDL_ToolkitMenuItemX11 *, void *);
     SDL_ListNode *sub_menu;
 
     /* Internal use */
+    size_t utf8_sz;
     SDL_Rect utf8_rect;
     SDL_Rect hover_rect;
     SDL_Rect check_rect;
@@ -309,6 +311,10 @@ extern void X11Toolkit_GetListControlAreaSize(SDL_ToolkitControlX11 *base_contro
 extern void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control, int x, int y);
 extern void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control);
 extern SDL_ListNode *X11Toolkit_GetListControlSelection(SDL_ToolkitControlX11 *base_control);
+
+/* MENU FUNCTIONS */
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateMenuBarControl(SDL_ToolkitWindowX11 *window, SDL_ListNode *menu_items);
+extern SDL_ToolkitControlX11 *X11Toolkit_CreateMenuControl(SDL_ToolkitWindowX11 *window, SDL_ListNode *menu_items);
 
 #endif // SDL_VIDEO_DRIVER_X11
 
