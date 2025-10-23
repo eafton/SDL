@@ -25,10 +25,9 @@
 
 #include "../../SDL_list.h"
 #include "SDL_x11dyn.h"
-#include "SDL_x11toolkit.h"
 #include "SDL_x11video.h"
-#include "SDL_x11settings.h"
 #include "xsettings-client.h"
+
 #ifdef HAVE_FRIBIDI_H
 #include "../../core/unix/SDL_fribidi.h"
 #endif
@@ -90,9 +89,11 @@ typedef struct SDL_ToolkitWindowX11
     XdbeBackBuffer buf;
     bool xdbe; // Whether Xdbe is present or not
 #endif
+
 #ifdef SDL_VIDEO_DRIVER_X11_XRANDR
     bool xrandr; // Whether Xrandr is present or not
 #endif
+
 #ifndef NO_SHARED_MEMORY
     bool shm;
     Bool shm_pixmap;
@@ -186,8 +187,8 @@ typedef enum SDL_ToolkitControlStateX11
 {
     SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL,
     SDL_TOOLKIT_CONTROL_STATE_X11_HOVER,
-    SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED,      /* Key/Button Up */
-    SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD, /* Key/Button Down */
+    SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED, /* Key/Button Up */
+    SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED,  /* Key/Button Down */
     SDL_TOOLKIT_CONTROL_STATE_X11_DISABLED
 } SDL_ToolkitControlStateX11;
 
@@ -223,7 +224,7 @@ typedef struct SDL_ToolkitMenuItemX11
     bool checked;
     bool disabled;
     bool seperator;
-	void *cb_data;
+    void *cb_data;
     void (*cb)(struct SDL_ToolkitMenuItemX11 *, void *);
     SDL_ListNode *sub_menu;
 
@@ -253,10 +254,10 @@ typedef struct SDL_ToolkitListItemX11
 {
     const char *utf8;
     SDL_ToolkitIconX11 icon;
-	bool no_multi_select;
-	void *cb_data;
+    bool no_multi_select;
+    void *cb_data;
     void (*cb)(struct SDL_ToolkitListItemX11 *, void *);
-	
+
     /* Internal use */
     size_t utf8_len;
     SDL_Rect rect;

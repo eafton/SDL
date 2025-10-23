@@ -19,7 +19,10 @@
   3. This notice may not be removed or altered from any source distribution.
 */
 
+#include "SDL3/SDL_rect.h"
 #include "SDL_internal.h"
+#include <X11/X.h>
+#include <X11/Xlib.h>
 
 #ifdef SDL_VIDEO_DRIVER_X11
 
@@ -86,11 +89,11 @@ typedef struct SDL_ToolkitButtonControlX11
 #ifdef HAVE_FRIBIDI_H
     char *text;
     bool free_text;
-#endif	
+#endif
 
-	/* Dropdown */
-	SDL_Rect arrow_rect;
-	bool dropdown;
+    /* Dropdown */
+    SDL_Rect arrow_rect;
+    bool dropdown;
 
     /* Callback */
     void *cb_data;
@@ -127,6 +130,9 @@ typedef struct SDL_ToolkitSliderControlX11
     SDL_ToolkitControlX11 parent;
 
     bool horiz;
+    bool held;
+    int held_axis;
+
     Pixmap bg;
     SDL_ToolkitControlStateX11 handle_state;
     SDL_Rect handle_rect;
@@ -150,12 +156,12 @@ typedef struct SDL_ToolkitListControlX11
     SDL_Rect item_area_rect;
     SDL_Rect item_area_reserved_rect;
     bool item_area_rendered;
-    
+
     /* Selection */
-	SDL_ListNode *selected_items;
-	bool allow_multi_select;
-	bool modifiers;
-	
+    SDL_ListNode *selected_items;
+    bool allow_multi_select;
+    bool modifiers;
+
     /* Colors */
     XColor xcolor_black;
     XColor xcolor_green;
@@ -1440,17 +1446,16 @@ static void X11Toolkit_DrawWindow(SDL_ToolkitWindowX11 *data)
     X11_XFlush(data->display);
 }
 
-static SDL_ToolkitControlX11 *X11Toolkit_GetControlMouseIsOn(SDL_ToolkitWindowX11 *data, int x, int y)
+static SDL_ToolkitControlX11 *X11Toolkit_GetControlMouseIsOn(SDL_ToolkitWindowX11 *data, SDL_Point mouse)
 {
     int i;
 
     for (i = 0; i < data->dyn_controls_sz; i++) {
-        SDL_Rect *rect = &data->dyn_controls[i]->rect;
-        if ((x >= rect->x) &&
-            (x <= (rect->x + rect->w)) &&
-            (y >= rect->y) &&
-            (y <= (rect->y + rect->h))) {
-            return data->dyn_controls[i];
+        SDL_ToolkitControlX11 *control;
+        control = data->dyn_controls[i];
+
+        if (SDL_PointInRect(&mouse, &control->rect)) {
+            return control;
         }
     }
 
@@ -1483,14 +1488,6 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
 
     data->draw = false;
     data->e = e;
-
-    if (data->focused_control) {
-        if (data->focused_control->func_process_event) {
-            if (data->focused_control->func_process_event(data->focused_control)) {
-                return;
-            }
-        }
-    }
 
     switch (e->type) {
     case Expose:
@@ -1538,7 +1535,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             }
 
             data->previous_control = data->fiddled_control;
-            data->fiddled_control = X11Toolkit_GetControlMouseIsOn(data, SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale));
+            data->fiddled_control = X11Toolkit_GetControlMouseIsOn(data, (SDL_Point){ SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale) });
             if (data->previous_control) {
                 data->previous_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
                 if (data->previous_control->func_on_state_change) {
@@ -1559,8 +1556,46 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             }
         }
         break;
+
     case ButtonPress:
+    {
+        SDL_ToolkitControlX11 *control;
+
         data->previous_control = data->fiddled_control;
+
+        if (e->xbutton.button != Button1) {
+            break;
+        }
+
+        data->draw = true;
+        control = X11Toolkit_GetControlMouseIsOn(data, (SDL_Point){ SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale) });
+
+        if (control) {
+            if (control->special_focus) {
+                if (data->focused_control) {
+                    data->focused_control->selected = false;
+                }
+                data->focused_control = control;
+                data->focused_control->selected = true;
+            }
+        } else {
+            if (data->focused_control) {
+                if (data->focused_control->special_focus) {
+                    data->focused_control->selected = false;
+                    data->focused_control = NULL;
+                }
+            }
+        }
+
+        data->fiddled_control = X11Toolkit_GetControlMouseIsOn(data, (SDL_Point){ SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale) });
+        if (data->fiddled_control) {
+            data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
+            if (data->fiddled_control->func_on_state_change) {
+                data->fiddled_control->func_on_state_change(data->fiddled_control);
+            }
+            data->draw = true;
+        }
+
         if (data->previous_control) {
             data->previous_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
             if (data->previous_control->func_on_state_change) {
@@ -1568,18 +1603,17 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             }
             data->draw = true;
         }
-        if (e->xbutton.button == Button1) {
-            data->fiddled_control = X11Toolkit_GetControlMouseIsOn(data, SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale));
-            if (data->fiddled_control) {
-                data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD;
-                if (data->fiddled_control->func_on_state_change) {
-                    data->fiddled_control->func_on_state_change(data->fiddled_control);
-                }
-                data->draw = true;
-            }
-        }
         break;
+    }
+
     case ButtonRelease:
+    {
+        if (e->xbutton.button != Button1) {
+            break;
+        }
+
+        data->draw = true;
+
         if (data->mode == SDL_TOOLKIT_WINDOW_MODE_X11_MENU || data->mode == SDL_TOOLKIT_WINDOW_MODE_X11_TOOLTIP) {
             int cx;
             int cy;
@@ -1596,44 +1630,23 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             }
         }
 
-        if (e->xbutton.button == Button1) {
-            SDL_ToolkitControlX11 *control;
-
-            data->draw = true;
-            control = X11Toolkit_GetControlMouseIsOn(data, SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale));
-            if (control) {
-                if (control->special_focus) {
-                    if (data->focused_control) {
-                        data->focused_control->selected = false;
-                    }
-                    data->focused_control = control;
-                    data->focused_control->selected = true;
-                }
-            } else {
-                if (data->focused_control) {
-                    if (data->focused_control->special_focus) {
-                        data->focused_control->selected = false;
-                        data->focused_control = NULL;
-                    }
-                }
+        if (data->fiddled_control) {
+            data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED;
+            if (data->fiddled_control->func_on_state_change) {
+                data->fiddled_control->func_on_state_change(data->fiddled_control);
             }
-			
-            if (data->fiddled_control == control && data->fiddled_control) {
-                data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
-                if (data->fiddled_control->func_on_state_change) {
-                    data->fiddled_control->func_on_state_change(data->fiddled_control);
-                }
-                data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-            }
+            data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
         }
         break;
+    }
+
     case KeyPress:
         data->last_key_pressed = X11_XLookupKeysym(&e->xkey, 0);
 
         if (data->last_key_pressed == XK_Escape) {
             for (data->ev_i = 0; data->ev_i < data->controls_sz; data->ev_i++) {
                 if (data->controls[data->ev_i]->is_default_esc) {
-                    data->controls[data->ev_i]->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD;
+                    data->controls[data->ev_i]->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
                     data->draw = true;
                     data->key_control_esc = data->controls[data->ev_i];
                     if (data->key_control_esc->func_on_state_change) {
@@ -1644,7 +1657,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
         } else if ((data->last_key_pressed == XK_Return) || (data->last_key_pressed == XK_KP_Enter)) {
             for (data->ev_i = 0; data->ev_i < data->controls_sz; data->ev_i++) {
                 if (data->controls[data->ev_i]->selected) {
-                    data->controls[data->ev_i]->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD;
+                    data->controls[data->ev_i]->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
                     data->draw = true;
                     data->key_control_enter = data->controls[data->ev_i];
                     if (data->key_control_enter->func_on_state_change) {
@@ -1654,6 +1667,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             }
         }
         break;
+
     case KeyRelease:
     {
         KeySym key = X11_XLookupKeysym(&e->xkey, 0);
@@ -1665,14 +1679,14 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
 
         if (key == XK_Escape) {
             if (data->key_control_esc) {
-                data->key_control_esc->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
+                data->key_control_esc->state = SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED;
                 if (data->key_control_esc->func_on_state_change) {
                     data->key_control_esc->func_on_state_change(data->key_control_esc);
                 }
             }
         } else if ((key == XK_Return) || (key == XK_KP_Enter)) {
             if (data->key_control_enter) {
-                data->key_control_enter->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
+                data->key_control_enter->state = SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED;
                 if (data->key_control_enter->func_on_state_change) {
                     data->key_control_enter->func_on_state_change(data->key_control_enter);
                 }
@@ -1700,10 +1714,16 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
                 data->focused_control->selected = true;
             }
         } else if (key == XK_Left || key == XK_Right) {
+            data->draw = true;
+
             if (data->focused_control) {
+                if (data->focused_control->captures_lr_arrows) {
+                    break;
+                }
+
                 data->focused_control->selected = false;
             }
-            data->draw = true;
+
             for (data->ev_i = 0; data->ev_i < data->dyn_controls_non_capturing_sz; data->ev_i++) {
                 if (data->dyn_controls_non_capturing[data->ev_i] == data->focused_control) {
                     int next_index;
@@ -1728,6 +1748,14 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
         }
         break;
     }
+    }
+
+    if (data->focused_control) {
+        if (data->focused_control->func_process_event) {
+            if (data->focused_control->func_process_event(data->focused_control)) {
+                return;
+            }
+        }
     }
 
     if (data->draw) {
@@ -2010,10 +2038,10 @@ static void X11Toolkit_CalculateButtonControl(SDL_ToolkitControlX11 *control)
 
     if (button_control->data) {
         X11Toolkit_GetTextWidthHeight(control->window, button_control->data->text, button_control->str_sz, &button_control->text_rect.w, &button_control->text_rect.h, &button_control->text_a, &text_d, NULL);
-		if (button_control->dropdown) {
-			button_control->arrow_rect.w = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
-			button_control->arrow_rect.h = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
-		}
+        if (button_control->dropdown) {
+            button_control->arrow_rect.w = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
+            button_control->arrow_rect.h = button_control->text_rect.h - SDL_TOOLKIT_X11_ELEMENT_PADDING * control->window->iscale;
+        }
     } else {
         switch (button_control->icon) {
         case SDL_TOOLKIT_ICON_X11_UP_ARROW:
@@ -2040,23 +2068,22 @@ static void X11Toolkit_CalculateButtonControl(SDL_ToolkitControlX11 *control)
             control->rect.w = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.w;
             control->rect.h = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.h;
             if (button_control->dropdown) {
-				control->rect.w += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w;
-			}
+                control->rect.w += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w;
+            }
         }
     }
 
     button_control->text_rect.y = (control->rect.h - button_control->text_rect.h) / 2;
-	if (button_control->dropdown) {
-		button_control->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale;
-		button_control->arrow_rect.y = (control->rect.h - button_control->arrow_rect.h) / 2;
-		button_control->arrow_rect.x = control->rect.w - (SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w);
-	} else {
-		button_control->text_rect.x = (control->rect.w - button_control->text_rect.w) / 2;
-	}
+    if (button_control->dropdown) {
+        button_control->text_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale;
+        button_control->arrow_rect.y = (control->rect.h - button_control->arrow_rect.h) / 2;
+        button_control->arrow_rect.x = control->rect.w - (SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * control->window->iscale + button_control->arrow_rect.w);
+    } else {
+        button_control->text_rect.x = (control->rect.w - button_control->text_rect.w) / 2;
+    }
     if (button_control->data) {
         button_control->text_rect.y += button_control->text_a;
     }
-
 }
 
 static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control)
@@ -2074,7 +2101,7 @@ static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control)
 
     X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
     /* Draw bevel */
-    if (control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
+    if (control->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
         X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_d.pixel);
         X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx,
                            control->rect.x, control->rect.y,
@@ -2212,19 +2239,19 @@ static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control)
 
         X11_XFillPolygon(control->window->display, control->window->drawable, control->window->ctx, points, 3, Convex, CoordModeOrigin);
     }
-    
+
     if (button_control->dropdown) {
         XPoint points[3];
 
-		points[0].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w / 2;
-		points[0].y = control->rect.y + button_control->arrow_rect.y + button_control->arrow_rect.h;
-		points[1].x = control->rect.x + button_control->arrow_rect.x;
-		points[1].y = control->rect.y + button_control->arrow_rect.y;
-		points[2].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w;
-		points[2].y = control->rect.y + button_control->arrow_rect.y;
-		
+        points[0].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w / 2;
+        points[0].y = control->rect.y + button_control->arrow_rect.y + button_control->arrow_rect.h;
+        points[1].x = control->rect.x + button_control->arrow_rect.x;
+        points[1].y = control->rect.y + button_control->arrow_rect.y;
+        points[2].x = control->rect.x + button_control->arrow_rect.x + button_control->arrow_rect.w;
+        points[2].y = control->rect.y + button_control->arrow_rect.y;
+
         X11_XFillPolygon(control->window->display, control->window->drawable, control->window->ctx, points, 3, Convex, CoordModeOrigin);
-	}
+    }
 }
 
 static void X11Toolkit_OnButtonControlStateChange(SDL_ToolkitControlX11 *control)
@@ -2232,7 +2259,7 @@ static void X11Toolkit_OnButtonControlStateChange(SDL_ToolkitControlX11 *control
     SDL_ToolkitButtonControlX11 *button_control;
 
     button_control = (SDL_ToolkitButtonControlX11 *)control;
-    if (button_control->cb && control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+    if (button_control->cb && control->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED) {
         button_control->cb(control, button_control->cb_data);
     }
 }
@@ -2298,8 +2325,8 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
     }
     control->icon = icon;
     control->cb = NULL;
-	control->dropdown = dropdown;
-	
+    control->dropdown = dropdown;
+
 #ifdef HAVE_FRIBIDI_H
     if (data) {
         if (base_control->window->fribidi) {
@@ -2329,8 +2356,9 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateCommonButtonControl(SDL_ToolkitWindowX11
     return base_control;
 }
 
-SDL_ToolkitControlX11 *X11Toolkit_CreateDropDownButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data) {
-    return X11Toolkit_CreateCommonButtonControl(window, data, SDL_TOOLKIT_ICON_X11_NONE, true);	
+SDL_ToolkitControlX11 *X11Toolkit_CreateDropDownButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data)
+{
+    return X11Toolkit_CreateCommonButtonControl(window, data, SDL_TOOLKIT_ICON_X11_NONE, true);
 }
 
 SDL_ToolkitControlX11 *X11Toolkit_CreateButtonControl(SDL_ToolkitWindowX11 *window, const SDL_MessageBoxButtonData *data)
@@ -2761,60 +2789,45 @@ void X11Toolkit_SignalWindowClose(SDL_ToolkitWindowX11 *data)
 
 static size_t X11Tookit_FindEntryControlNextCodePointSize(SDL_ToolkitEntryControlX11 *entry_control, size_t offset)
 {
-    size_t sz;
-    sz = 1;
+    if (offset >= entry_control->sz) {
+        offset = entry_control->sz - 1;
+    }
 
 #ifdef X_HAVE_UTF8_STRING
-    if (!entry_control->parent.window->utf8) {
-        return sz;
-    }
+    if (entry_control->parent.window->utf8) {
+        const char *start_ptr = &entry_control->buffer[offset];
+        const char *ptr = &entry_control->buffer[offset];
+        size_t sz = entry_control->sz - offset;
 
-    if (++offset >= entry_control->sz) {
-        return sz;
-    }
-
-    while (((entry_control->buffer[offset]) & (1 << (7))) && !((entry_control->buffer[offset]) & (1 << (6)))) {
-        if (++sz > 4) {
-            return 0;
-        }
-
-        if (++offset >= entry_control->sz) {
-            return sz;
-        }
+        SDL_StepUTF8(&ptr, &sz);
+        return (size_t)(ptr - start_ptr);
     }
 #endif
 
-    return sz;
+    return 1;
 }
 
 static size_t X11Tookit_FindEntryControlPrevCodePointSize(SDL_ToolkitEntryControlX11 *entry_control, size_t offset)
 {
-    size_t sz;
-    sz = 1;
+    if (!offset) {
+        return 0;
+    }
+
+    if (offset >= entry_control->sz) {
+        offset = entry_control->sz - 1;
+    }
 
 #ifdef X_HAVE_UTF8_STRING
-    if (!entry_control->parent.window->utf8) {
-        return sz;
+    if (entry_control->parent.window->utf8) {
+        const char *start_ptr = &entry_control->buffer[offset];
+        const char *ptr = &entry_control->buffer[offset];
+
+        SDL_StepBackUTF8(entry_control->buffer, &ptr);
+        return (size_t)(start_ptr - ptr);
     }
-
-    if (offset-- == 0) {
-        return sz;
-    }
-
-    while (((entry_control->buffer[offset]) & (1 << (7))) &&
-           !((entry_control->buffer[offset]) & (1 << (6)))) {
-        if (++sz > 4) {
-            return 0;
-        }
-
-        if (offset-- == 0) {
-            return sz;
-        }
-    }
-
 #endif
 
-    return sz;
+    return 1;
 }
 
 static size_t X11Toolkit_InsertIntoEntryControlBuffer(SDL_ToolkitEntryControlX11 *entry_control, const char *str, size_t offset, size_t sz)
@@ -3329,12 +3342,16 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
     case ButtonPress:
     {
         XButtonEvent *xbutton;
-        int x, xx1;
-        int width, height, ascent, descent;
+        SDL_Point mouse;
+        int width, height, ascent, descent, xx1;
         size_t i;
 
         xbutton = &control->window->e->xbutton;
-        x = xbutton->x;
+        mouse = (SDL_Point){ xbutton->x, xbutton->y };
+
+        if (!SDL_PointInRect(&mouse, &control->rect)) {
+            return false;
+        }
 
         if (xbutton->button != Button1) {
             entry_control->sel_held = false;
@@ -3349,7 +3366,7 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
             xx1 = control->rect.x + entry_control->text_x + width;
 
             // cursor's on that character, return
-            if (x <= xx1) {
+            if (mouse.x <= xx1) {
                 break;
             }
 
@@ -3381,33 +3398,26 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
         }
 
         entry_control->sel_held = true;
-        entry_control->sel_held_x = x;
+        entry_control->sel_held_x = mouse.x;
         entry_control->sel_held_i = entry_control->cur;
         break;
     }
 
     case ButtonRelease:
     {
-        XButtonEvent *xbutton;
-        xbutton = &control->window->e->xbutton;
-
-        if (xbutton->button != Button1) {
-            entry_control->sel_held = false;
-            return false;
-        }
-
         entry_control->sel_held = false;
-        break;
+        return false;
     }
 
     case MotionNotify:
     {
         XMotionEvent *xmotion;
-        int x, i, xx1;
-        int width, height, ascent, descent;
+        SDL_Point mouse;
+        int width, height, ascent, descent, xx1;
+        size_t i;
 
         xmotion = &control->window->e->xmotion;
-        x = xmotion->x;
+        mouse = (SDL_Point){ xmotion->x, xmotion->y };
 
         if (!(xmotion->state & Button1Mask)) {
             entry_control->sel_held = false;
@@ -3422,7 +3432,7 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
             xx1 = control->rect.x + entry_control->text_x + width;
 
             // cursor's on that character, return
-            if (x <= xx1) {
+            if (mouse.x <= xx1) {
                 break;
             }
 
@@ -3437,7 +3447,7 @@ static bool X11Toolkit_ProcessEntryControlMouseEvent(SDL_ToolkitControlX11 *cont
         }
 
         // set the direction relative to start of selection
-        entry_control->sel_dir = entry_control->sel_held_x <= x
+        entry_control->sel_dir = entry_control->sel_held_x <= mouse.x
                                      ? SDL_TOOLKIT_ENTRY_SELECTION_X11_LEFT
                                      : SDL_TOOLKIT_ENTRY_SELECTION_X11_RIGHT;
 
@@ -3590,16 +3600,11 @@ static void X11Toolkit_OnEntryControlStateChange(SDL_ToolkitControlX11 *base_con
         X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_normal);
         break;
     case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
-    case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD:
-        X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
-        break;
     case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
         X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
-        if (base_control->window->focused_control) {
-            base_control->window->focused_control->selected = false;
-        }
-        base_control->selected = true;
-        base_control->window->focused_control = base_control;
+        break;
+    case SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED:
+        X11_XDefineCursor(base_control->window->display, base_control->window->window, base_control->window->cursor_text_edit);
         break;
     default:
         break;
@@ -3743,55 +3748,55 @@ static void X11Toolkit_DrawSliderControl(SDL_ToolkitControlX11 *base_control)
     X11_XSetFillStyle(base_control->window->display, base_control->window->ctx, FillSolid);
 
     /* slider */
-	if (base_control->selected) {
-            X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
-            X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                               base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y,
-                               control->handle_rect.w, control->handle_rect.h);
+    if (base_control->selected) {
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
+                           base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y,
+                           control->handle_rect.w, control->handle_rect.h);
 
-            X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
-            X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                               base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale,
-                               control->handle_rect.w - 3 * base_control->window->iscale, control->handle_rect.h - 3 * base_control->window->iscale);
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
+                           base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale,
+                           control->handle_rect.w - 3 * base_control->window->iscale, control->handle_rect.h - 3 * base_control->window->iscale);
 
-            X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
-            X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                               base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale,
-                               control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
+                           base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale,
+                           control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
 
-            X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
-            X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                               base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale,
-                               control->handle_rect.w - 5 * base_control->window->iscale, control->handle_rect.h - 5 * base_control->window->iscale);
-   } else {
-	
-		X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y, control->handle_rect.w, control->handle_rect.h);
-		X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y, control->handle_rect.w - 1 * base_control->window->iscale, control->handle_rect.h - 1 * base_control->window->iscale);
-		X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale, control->handle_rect.w - 2 * base_control->window->iscale, control->handle_rect.h - 2 * base_control->window->iscale);
-		X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale, control->handle_rect.w - 3 * base_control->window->iscale, control->handle_rect.h - 3 * base_control->window->iscale);
-	}
-   switch (control->handle_state) {
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
+                           base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale,
+                           control->handle_rect.w - 5 * base_control->window->iscale, control->handle_rect.h - 5 * base_control->window->iscale);
+    } else {
+
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y, control->handle_rect.w, control->handle_rect.h);
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x, base_control->rect.y + control->handle_rect.y, control->handle_rect.w - 1 * base_control->window->iscale, control->handle_rect.h - 1 * base_control->window->iscale);
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale, control->handle_rect.w - 2 * base_control->window->iscale, control->handle_rect.h - 2 * base_control->window->iscale);
+        X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 1 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 1 * base_control->window->iscale, control->handle_rect.w - 3 * base_control->window->iscale, control->handle_rect.h - 3 * base_control->window->iscale);
+    }
+    switch (control->handle_state) {
     case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_SELECTED].pixel);
         break;
-    case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD:
     case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
+    case SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED:
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_pressed.pixel);
         break;
     default:
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].pixel);
         break;
     }
-    
+
     if (!base_control->selected) {
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale, control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
-	} else {
-		X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 3 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 3 * base_control->window->iscale, control->handle_rect.w - 6 * base_control->window->iscale, control->handle_rect.h - 6 * base_control->window->iscale);
-	} 
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 2 * base_control->window->iscale, control->handle_rect.w - 4 * base_control->window->iscale, control->handle_rect.h - 4 * base_control->window->iscale);
+    } else {
+        X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->handle_rect.x + 3 * base_control->window->iscale, base_control->rect.y + control->handle_rect.y + 3 * base_control->window->iscale, control->handle_rect.w - 6 * base_control->window->iscale, control->handle_rect.h - 6 * base_control->window->iscale);
+    }
 }
 
 static void X11Toolkit_CalculateSliderControl(SDL_ToolkitControlX11 *base_control)
@@ -3820,6 +3825,277 @@ static void X11Toolkit_CalculateSliderControl(SDL_ToolkitControlX11 *base_contro
         control->handle_rect.x = 30;
         control->handle_rect.y = 0;
     }
+}
+
+static void X11Toolkit_OnSliderControlScaleChange(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitSliderControlX11 *control;
+    GC ctx;
+    XGCValues ctx_vals;
+
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
+    if (control->bg != None) {
+        X11_XFreePixmap(base_control->window->display, control->bg);
+    }
+    control->bg = X11_XCreatePixmap(base_control->window->display, RootWindow(base_control->window->display, base_control->window->screen), 2 * base_control->window->iscale, 2 * base_control->window->iscale, base_control->window->depth);
+    SDL_zero(ctx_vals);
+    ctx_vals.foreground = base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].pixel;
+    ctx = X11_XCreateGC(base_control->window->display, control->bg, GCForeground, &ctx_vals);
+    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 0, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
+    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
+    X11_XSetForeground(base_control->window->display, ctx, base_control->window->xcolor_light_control_bg.pixel);
+    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 1 * base_control->window->iscale, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
+    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
+    X11_XFreeGC(base_control->window->display, ctx);
+}
+
+static void X11Toolkit_AdjustSliderControl(SDL_ToolkitControlX11 *base_control, int amount)
+{
+    SDL_ToolkitSliderControlX11 *control;
+
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
+
+    if (!control->horiz) {
+        control->handle_rect.y -= amount;
+        control->handle_rect.y = SDL_clamp(control->handle_rect.y, 0, base_control->rect.h - control->handle_rect.h);
+
+        if (control->callback) {
+            control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
+        }
+    } else {
+        control->handle_rect.x += amount;
+        control->handle_rect.x = SDL_clamp(control->handle_rect.x, 0, base_control->rect.w - control->handle_rect.w);
+
+        if (control->callback) {
+            control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
+        }
+    }
+}
+
+static void X11Toolkit_OnSliderControlStateChange(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitSliderControlX11 *control;
+    int x;
+    int y;
+    bool on_handle;
+
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
+    x = SDL_lroundf((base_control->window->e->xbutton.x / base_control->window->ev_scale) * base_control->window->ev_iscale);
+    y = SDL_lroundf((base_control->window->e->xbutton.y / base_control->window->ev_scale) * base_control->window->ev_iscale);
+    if ((x >= base_control->rect.x + control->handle_rect.x) && (x <= (base_control->rect.x + control->handle_rect.x + control->handle_rect.w)) && (y >= base_control->rect.y + control->handle_rect.y) && (y <= (base_control->rect.y + control->handle_rect.y + control->handle_rect.h))) {
+        on_handle = true;
+    } else {
+        on_handle = false;
+    }
+
+    x -= base_control->rect.x;
+    y -= base_control->rect.y;
+    switch (base_control->state) {
+    case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
+    case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
+        if (on_handle) {
+            control->handle_state = base_control->state;
+        }
+        break;
+    case SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED:
+        if (!on_handle) {
+            if (control->horiz) {
+                control->handle_rect.x = x;
+                if (control->handle_rect.x + control->handle_rect.w > base_control->rect.w) {
+                    control->handle_rect.x = base_control->rect.w - control->handle_rect.w;
+                } else if (control->handle_rect.x < 0) {
+                    control->handle_rect.x = 0;
+                }
+                if (control->callback) {
+                    control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
+                }
+            } else {
+                control->handle_rect.y = y;
+                if (control->handle_rect.y + control->handle_rect.h > base_control->rect.h) {
+                    control->handle_rect.y = base_control->rect.h - control->handle_rect.h;
+                } else if (control->handle_rect.y < 0) {
+                    control->handle_rect.y = 0;
+                }
+                if (control->callback) {
+                    control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
+                }
+            }
+        } else {
+            control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED;
+        }
+        break;
+    default:
+        control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+        break;
+    }
+}
+
+static void X11Toolkit_DestroySliderControl(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitSliderControlX11 *control;
+
+    control = (SDL_ToolkitSliderControlX11 *)base_control;
+    X11_XFreePixmap(base_control->window->display, control->bg);
+    SDL_free(base_control);
+}
+
+static bool X11Toolkit_ProcessSliderControlEvent(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitSliderControlX11 *slider_control;
+
+    slider_control = (SDL_ToolkitSliderControlX11 *)base_control;
+
+    switch (base_control->window->e->type) {
+    case KeyPress:
+    {
+        XKeyEvent *xkey;
+        KeySym keysym;
+
+        xkey = &base_control->window->e->xkey;
+        keysym = X11_XLookupKeysym(xkey, 0);
+
+        if (slider_control->horiz) {
+            if (keysym == XK_Left) {
+                X11Toolkit_DropSliderControl(base_control);
+                return true;
+            } else if (keysym == XK_Right) {
+                X11Toolkit_ElevateSliderControl(base_control);
+                return true;
+            }
+        } else {
+            if (keysym == XK_Down) {
+                X11Toolkit_DropSliderControl(base_control);
+                return true;
+            } else if (keysym == XK_Up) {
+                X11Toolkit_ElevateSliderControl(base_control);
+                return true;
+            }
+        }
+
+        break;
+    }
+
+    case ButtonPress:
+    {
+        XButtonEvent *xbutton;
+        SDL_Point mouse;
+
+        xbutton = &base_control->window->e->xbutton;
+        mouse = (SDL_Point){ xbutton->x, xbutton->y };
+
+        if (!SDL_PointInRect(&mouse, &base_control->rect)) {
+            break;
+        }
+
+        if (xbutton->button == Button1) {
+            slider_control->held_axis = slider_control->horiz ? mouse.x : mouse.y;
+            slider_control->held = true;
+            return true;
+        }
+
+        // Wheel
+        else if (xbutton->button == Button4) {
+            X11Toolkit_ElevateSliderControl(base_control);
+            return true;
+        } else if (xbutton->button == Button5) {
+            X11Toolkit_DropSliderControl(base_control);
+            return true;
+        }
+
+        break;
+    }
+
+    case MotionNotify:
+    {
+        XMotionEvent *xmotion;
+
+        xmotion = &base_control->window->e->xmotion;
+
+        if (!slider_control->held) {
+            break;
+        }
+
+        if (slider_control->horiz) {
+            X11Toolkit_AdjustSliderControl(base_control, xmotion->x - slider_control->held_axis);
+            slider_control->held_axis = xmotion->x;
+            return true;
+        }
+
+        X11Toolkit_AdjustSliderControl(base_control, slider_control->held_axis - xmotion->y);
+        slider_control->held_axis = xmotion->y;
+        return true;
+    }
+
+    case ButtonRelease:
+    {
+        XButtonEvent *xbutton;
+
+        xbutton = &base_control->window->e->xbutton;
+
+        if (xbutton->button != Button1) {
+            break;
+        }
+
+        slider_control->held_axis = 0;
+        slider_control->held = false;
+        break;
+    }
+    }
+
+    return false;
+}
+
+SDL_ToolkitControlX11 *X11Toolkit_CreateSliderControl(SDL_ToolkitWindowX11 *window, bool horiz)
+{
+    SDL_ToolkitSliderControlX11 *control;
+    SDL_ToolkitControlX11 *base_control;
+
+    control = (SDL_ToolkitSliderControlX11 *)SDL_malloc(sizeof(SDL_ToolkitSliderControlX11));
+    base_control = (SDL_ToolkitControlX11 *)control;
+    if (!control) {
+        SDL_SetError("Unable to allocate slider control structure");
+        return NULL;
+    }
+
+    base_control->window = window;
+    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+    base_control->func_calc_size = X11Toolkit_CalculateSliderControl;
+    base_control->func_draw = X11Toolkit_DrawSliderControl;
+    base_control->func_on_state_change = X11Toolkit_OnSliderControlStateChange;
+    base_control->func_free = X11Toolkit_DestroySliderControl;
+    base_control->func_on_scale_change = X11Toolkit_OnSliderControlScaleChange;
+    base_control->func_process_event = X11Toolkit_ProcessSliderControlEvent;
+    base_control->selected = false;
+    base_control->dynamic = true;
+    base_control->is_default_enter = false;
+    base_control->is_default_esc = false;
+    base_control->captures_lr_arrows = horiz;
+    base_control->special_focus = true;
+
+    control->horiz = horiz;
+    control->held = false;
+    control->held_axis = 0;
+    control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+    control->bg = None;
+    control->callback = NULL;
+    control->user_data = NULL;
+    X11Toolkit_OnSliderControlScaleChange(base_control);
+    base_control->do_size = true;
+    X11Toolkit_CalculateSliderControl(base_control);
+    base_control->do_size = false;
+
+    X11Toolkit_AddControlToWindow(window, base_control);
+    return base_control;
+}
+
+void X11Toolkit_ElevateSliderControl(SDL_ToolkitControlX11 *base_control)
+{
+    X11Toolkit_AdjustSliderControl(base_control, 10 * base_control->window->iscale);
+}
+
+void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control)
+{
+    X11Toolkit_AdjustSliderControl(base_control, -10 * base_control->window->iscale);
 }
 
 void X11Toolkit_SetSliderControlSize(SDL_ToolkitControlX11 *base_control, int real, int reserved)
@@ -3854,217 +4130,6 @@ void X11Toolkit_RegisterSliderControlCallback(SDL_ToolkitControlX11 *control, vo
     slider_control->callback = cb;
 }
 
-static void X11Toolkit_OnSliderControlScaleChange(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-    GC ctx;
-    XGCValues ctx_vals;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    if (control->bg != None) {
-        X11_XFreePixmap(base_control->window->display, control->bg);
-    }
-    control->bg = X11_XCreatePixmap(base_control->window->display, RootWindow(base_control->window->display, base_control->window->screen), 2 * base_control->window->iscale, 2 * base_control->window->iscale, base_control->window->depth);
-    SDL_zero(ctx_vals);
-    ctx_vals.foreground = base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].pixel;
-    ctx = X11_XCreateGC(base_control->window->display, control->bg, GCForeground, &ctx_vals);
-    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 0, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
-    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
-    X11_XSetForeground(base_control->window->display, ctx, base_control->window->xcolor_light_control_bg.pixel);
-    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 1 * base_control->window->iscale, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
-    X11_XFillRectangle(base_control->window->display, control->bg, ctx, 0, 1 * base_control->window->iscale, 1 * base_control->window->iscale, 1 * base_control->window->iscale);
-    X11_XFreeGC(base_control->window->display, ctx);
-}
-
-static void X11Toolkit_OnSliderControlStateChange(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-    int x;
-    int y;
-    bool on_handle;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    x = SDL_lroundf((base_control->window->e->xbutton.x / base_control->window->ev_scale) * base_control->window->ev_iscale);
-    y = SDL_lroundf((base_control->window->e->xbutton.y / base_control->window->ev_scale) * base_control->window->ev_iscale);
-    if ((x >= base_control->rect.x + control->handle_rect.x) && (x <= (base_control->rect.x + control->handle_rect.x + control->handle_rect.w)) && (y >= base_control->rect.y + control->handle_rect.y) && (y <= (base_control->rect.y + control->handle_rect.y + control->handle_rect.h))) {
-        on_handle = true;
-    } else {
-        on_handle = false;
-    }
-
-    x -= base_control->rect.x;
-    y -= base_control->rect.y;
-    switch (base_control->state) {
-    case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
-    case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD:
-        if (on_handle) {
-            control->handle_state = base_control->state;
-        }
-        break;
-    case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
-        if (!on_handle) {
-            if (control->horiz) {
-                control->handle_rect.x = x;
-                if (control->handle_rect.x + control->handle_rect.w > base_control->rect.w) {
-                    control->handle_rect.x = base_control->rect.w - control->handle_rect.w;
-                } else if (control->handle_rect.x < 0) {
-                    control->handle_rect.x = 0;
-                }
-                if (control->callback) {
-                    control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
-                }
-            } else {
-                control->handle_rect.y = y;
-                if (control->handle_rect.y + control->handle_rect.h > base_control->rect.h) {
-                    control->handle_rect.y = base_control->rect.h - control->handle_rect.h;
-                } else if (control->handle_rect.y < 0) {
-                    control->handle_rect.y = 0;
-                }
-                if (control->callback) {
-                    control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
-                }
-            }
-        } else {
-            control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
-        }
-        break;
-    default:
-        control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-        break;
-    }
-}
-
-static void X11Toolkit_DestroySliderControl(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    X11_XFreePixmap(base_control->window->display, control->bg);
-    SDL_free(base_control);
-}
-
-static bool X11Toolkit_ProcessSliderControlEvent(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    
-	if (base_control->window->e->type == KeyPress) {
-		KeySym keysym;
-		
-		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
-
-		if (control->horiz) {
-			if (keysym == XK_Left) {
-				X11Toolkit_DropSliderControl(base_control);
-				return true;
-			} else if (keysym == XK_Right) {
-				X11Toolkit_ElevateSliderControl(base_control);
-				return true;
-			} 		
-		} else {
-			if (keysym == XK_Down) {
-				X11Toolkit_DropSliderControl(base_control);
-				return true;
-			} else if (keysym == XK_Up) {
-				X11Toolkit_ElevateSliderControl(base_control);
-				return true;
-			} 		
-		}
-	}
-	return false;
-}
-
-
-SDL_ToolkitControlX11 *X11Toolkit_CreateSliderControl(SDL_ToolkitWindowX11 *window, bool horiz)
-{
-    SDL_ToolkitSliderControlX11 *control;
-    SDL_ToolkitControlX11 *base_control;
-
-    control = (SDL_ToolkitSliderControlX11 *)SDL_malloc(sizeof(SDL_ToolkitSliderControlX11));
-    base_control = (SDL_ToolkitControlX11 *)control;
-    if (!control) {
-        SDL_SetError("Unable to allocate slider control structure");
-        return NULL;
-    }
-
-    base_control->window = window;
-    base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-    base_control->func_calc_size = X11Toolkit_CalculateSliderControl;
-    base_control->func_draw = X11Toolkit_DrawSliderControl;
-    base_control->func_on_state_change = X11Toolkit_OnSliderControlStateChange;
-    base_control->func_free = X11Toolkit_DestroySliderControl;
-    base_control->func_on_scale_change = X11Toolkit_OnSliderControlScaleChange;
-    base_control->func_process_event = X11Toolkit_ProcessSliderControlEvent;
-    base_control->selected = false;
-    base_control->dynamic = true;
-    base_control->is_default_enter = false;
-    base_control->is_default_esc = false;
-    base_control->captures_lr_arrows = horiz;
-    base_control->special_focus = true;
-
-    control->horiz = horiz;
-    control->handle_state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-    control->bg = None;
-    control->callback = NULL;
-    control->user_data = NULL;
-    X11Toolkit_OnSliderControlScaleChange(base_control);
-    base_control->do_size = true;
-    X11Toolkit_CalculateSliderControl(base_control);
-    base_control->do_size = false;
-
-    X11Toolkit_AddControlToWindow(window, base_control);
-    return base_control;
-}
-
-void X11Toolkit_ElevateSliderControl(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    if (!control->horiz) {
-        control->handle_rect.y -= 10 * base_control->window->iscale;
-        if (control->handle_rect.y < 0) {
-            control->handle_rect.y = 0;
-        }
-        if (control->callback) {
-            control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
-        }
-    } else {
-        control->handle_rect.x += 10 * base_control->window->iscale;
-        if (control->handle_rect.x + control->handle_rect.w > base_control->rect.w) {
-            control->handle_rect.x = base_control->rect.w - control->handle_rect.w;
-        }
-        if (control->callback) {
-            control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
-        }
-    }
-}
-
-void X11Toolkit_DropSliderControl(SDL_ToolkitControlX11 *base_control)
-{
-    SDL_ToolkitSliderControlX11 *control;
-
-    control = (SDL_ToolkitSliderControlX11 *)base_control;
-    if (!control->horiz) {
-        control->handle_rect.y += 10 * base_control->window->iscale;
-        if (control->handle_rect.y + control->handle_rect.h > base_control->rect.h) {
-            control->handle_rect.y = base_control->rect.h - control->handle_rect.h;
-        }
-        if (control->callback) {
-            control->callback(base_control, control->user_data, base_control->rect.h, control->handle_rect.h, control->handle_rect.y);
-        }
-    } else {
-        control->handle_rect.x -= 10 * base_control->window->iscale;
-        if (control->handle_rect.x < 0) {
-            control->handle_rect.x = 0;
-        }
-        if (control->callback) {
-            control->callback(base_control, control->user_data, base_control->rect.w, control->handle_rect.w, control->handle_rect.x);
-        }
-    }
-}
-
 static void X11Toolkit_DrawPanControl(SDL_ToolkitControlX11 *control)
 {
     X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_bevel_l2.pixel);
@@ -4081,14 +4146,6 @@ static void X11Toolkit_DrawPanControl(SDL_ToolkitControlX11 *control)
 
     X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor_light_control_bg.pixel);
     X11_XFillRectangle(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + (2 * control->window->iscale), control->rect.y + (2 * control->window->iscale), control->rect.w - (4 * control->window->iscale), control->rect.h - (4 * control->window->iscale));
-}
-
-extern void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect)
-{
-    rect->x = control->rect.x + (2 * control->window->iscale);
-    rect->y = control->rect.y + (2 * control->window->iscale);
-    rect->w = control->rect.w - (4 * control->window->iscale);
-    rect->h = control->rect.h - (4 * control->window->iscale);
 }
 
 SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window)
@@ -4117,6 +4174,14 @@ SDL_ToolkitControlX11 *X11Toolkit_CreatePanControl(SDL_ToolkitWindowX11 *window)
     base_control->special_focus = false;
     X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
+}
+
+void X11Toolkit_GetPanControlInnerArea(SDL_ToolkitControlX11 *control, SDL_Rect *rect)
+{
+    rect->x = control->rect.x + (2 * control->window->iscale);
+    rect->y = control->rect.y + (2 * control->window->iscale);
+    rect->w = control->rect.w - (4 * control->window->iscale);
+    rect->h = control->rect.h - (4 * control->window->iscale);
 }
 
 static void X11Toolkit_DrawBlockControl(SDL_ToolkitControlX11 *control)
@@ -4206,7 +4271,7 @@ static void X11Toolkit_CalculateListControl(SDL_ToolkitControlX11 *base_control)
 
             item = cursor->entry;
 
-			item->click_count = 0;
+            item->click_count = 0;
             item->utf8_len = SDL_strlen(item->utf8);
             X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_len, &item->text_rect.w, &item->text_rect.h, &ascent, &descent, NULL);
             switch (item->icon) {
@@ -4323,17 +4388,17 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
         cursor = control->items;
         while (cursor) {
             SDL_ToolkitListItemX11 *item;
-			SDL_ListNode *select_cursor;
-			bool select;
-			
+            SDL_ListNode *select_cursor;
+            bool select;
+
             item = cursor->entry;
-			select = false;
-			
+            select = false;
+
             switch (item->state) {
-            case SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED:
+            case SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED:
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection.pixel);
-				select = true;
-               break;
+                select = true;
+                break;
             case SDL_TOOLKIT_CONTROL_STATE_X11_HOVER:
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_hover.pixel);
                 break;
@@ -4341,15 +4406,15 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
                 X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_bg.pixel);
                 break;
             }
-            
+
             select_cursor = control->selected_items;
             while (select_cursor) {
-				if (select_cursor->entry == item) {
-					X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection.pixel);
-					select = true;
-				}
-				select_cursor = select_cursor->next;
-			}
+                if (select_cursor->entry == item) {
+                    X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_selection.pixel);
+                    select = true;
+                }
+                select_cursor = select_cursor->next;
+            }
 
             X11_XFillRectangle(base_control->window->display, control->item_area, base_control->window->ctx, item->rect.x, item->rect.y, control->item_area_rect.w, item->rect.h);
 
@@ -4431,42 +4496,42 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
 static bool X11Toolkit_ProcessListControlEvent(SDL_ToolkitControlX11 *base_control)
 {
     SDL_ToolkitListControlX11 *control;
-	KeySym keysym;
+    KeySym keysym;
 
     control = (SDL_ToolkitListControlX11 *)base_control;
-    
-	if (base_control->window->e->type == KeyRelease) {
-		control->modifiers = false;
-		
-		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
 
-		switch (keysym) {
-            case XK_Escape:
-				if (control->selected_items) {
-					control->item_area_rendered = false;
-					SDL_ListClear(&control->selected_items);
-					X11Toolkit_DrawWindow(base_control->window);
-					return true;
-				}
-				break;
-            default:
-                return false;
-                break;
+    if (base_control->window->e->type == KeyRelease) {
+        control->modifiers = false;
+
+        keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
+
+        switch (keysym) {
+        case XK_Escape:
+            if (control->selected_items) {
+                control->item_area_rendered = false;
+                SDL_ListClear(&control->selected_items);
+                X11Toolkit_DrawWindow(base_control->window);
+                return true;
+            }
+            break;
+        default:
+            return false;
+            break;
         }
-	} else if (base_control->window->e->type == KeyPress) {
-		keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
-		if (keysym == XK_Control_L || keysym == XK_Control_R || keysym == XK_Shift_L || keysym == XK_Shift_R) {
-			control->modifiers = true;
-		}
-		if (base_control->window->e->xkey.state & ControlMask) {
-			control->modifiers = true;
-		}
-		if (base_control->window->e->xkey.state & ShiftMask) {
-			control->modifiers = true;
-		}
-	}
-	
-	return false;
+    } else if (base_control->window->e->type == KeyPress) {
+        keysym = X11_XLookupKeysym(&base_control->window->e->xkey, 0);
+        if (keysym == XK_Control_L || keysym == XK_Control_R || keysym == XK_Shift_L || keysym == XK_Shift_R) {
+            control->modifiers = true;
+        }
+        if (base_control->window->e->xkey.state & ControlMask) {
+            control->modifiers = true;
+        }
+        if (base_control->window->e->xkey.state & ShiftMask) {
+            control->modifiers = true;
+        }
+    }
+
+    return false;
 }
 
 static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_control)
@@ -4479,31 +4544,31 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
 
     control = (SDL_ToolkitListControlX11 *)base_control;
     cursor = control->items;
-	fiddled_item = NULL;
-	
-	x = SDL_lroundf((base_control->window->e->xbutton.x / base_control->window->ev_scale) * base_control->window->ev_iscale);
+    fiddled_item = NULL;
+
+    x = SDL_lroundf((base_control->window->e->xbutton.x / base_control->window->ev_scale) * base_control->window->ev_iscale);
     y = SDL_lroundf((base_control->window->e->xbutton.y / base_control->window->ev_scale) * base_control->window->ev_iscale);
     x -= base_control->rect.x;
     y -= base_control->rect.y;
     x += control->item_area_reserved_rect.x;
     y += control->item_area_reserved_rect.y;
-    
+
     if (control->allow_multi_select) {
-		if (!control->modifiers) {
-			goto CLEAR_SELECTION;
-		}
-	} else {
-		CLEAR_SELECTION:
-		if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
-			SDL_ListClear(&control->selected_items);
-		}
-	}
-	
-	while (cursor) {
+        if (!control->modifiers) {
+            goto CLEAR_SELECTION;
+        }
+    } else {
+    CLEAR_SELECTION:
+        if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+            SDL_ListClear(&control->selected_items);
+        }
+    }
+
+    while (cursor) {
         SDL_ToolkitListItemX11 *item;
         SDL_Rect *rect;
-		SDL_ToolkitControlStateX11 prev;
-      
+        SDL_ToolkitControlStateX11 prev;
+
         item = cursor->entry;
         rect = &item->rect;
         prev = item->state;
@@ -4512,51 +4577,53 @@ static void X11Toolkit_OnListControlStateChange(SDL_ToolkitControlX11 *base_cont
             (x <= (rect->x + control->item_area_rect.w)) &&
             (y >= rect->y) &&
             (y <= (rect->y + rect->h))) {
-			
-			fiddled_item = item;
-			fiddled_item->state = base_control->state;
-			if (control->allow_multi_select && fiddled_item->no_multi_select && (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD)) {
-				SDL_ListClear(&control->selected_items);
-			}
-			if (prev == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD && fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
-				if (fiddled_item->cb && fiddled_item->click_count == 2) {
-					fiddled_item->cb(item, fiddled_item->cb_data);
-					fiddled_item->click_count = 0;
-				}
-				fiddled_item->click_count++;
-			} 
+
+            fiddled_item = item;
+            fiddled_item->state = base_control->state;
+            if (control->allow_multi_select && fiddled_item->no_multi_select && (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED)) {
+                SDL_ListClear(&control->selected_items);
+            }
+            if (prev == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED && fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED) {
+                if (fiddled_item->cb && fiddled_item->click_count == 2) {
+                    fiddled_item->cb(item, fiddled_item->cb_data);
+                    fiddled_item->click_count = 0;
+                }
+                fiddled_item->click_count++;
+            }
             base_control->window->draw = true;
             control->item_area_rendered = false;
         }
-        
+
         cursor = cursor->next;
     }
-    
+
     if (fiddled_item) {
-		if (fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
-			SDL_ListAdd(&control->selected_items, fiddled_item);
-		}
-	} else {
-		if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
-			SDL_ListClear(&control->selected_items);
-		}
-	}
+        if (fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || fiddled_item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+            SDL_ListAdd(&control->selected_items, fiddled_item);
+        }
+    } else {
+        if (base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || base_control->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+            SDL_ListClear(&control->selected_items);
+        }
+    }
 }
 
-void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control) {
-    SDL_ToolkitListControlX11 *control;
-
-    control = (SDL_ToolkitListControlX11 *)base_control;
-    
-	control->allow_multi_select = true;
-}
-
-SDL_ListNode *X11Toolkit_GetListControlSelection(SDL_ToolkitControlX11 *base_control) {
+void X11Toolkit_EnableListControlMultiSelect(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitListControlX11 *control;
 
     control = (SDL_ToolkitListControlX11 *)base_control;
 
-	return control->selected_items;
+    control->allow_multi_select = true;
+}
+
+SDL_ListNode *X11Toolkit_GetListControlSelection(SDL_ToolkitControlX11 *base_control)
+{
+    SDL_ToolkitListControlX11 *control;
+
+    control = (SDL_ToolkitListControlX11 *)base_control;
+
+    return control->selected_items;
 }
 
 SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window, const char *header, SDL_ListNode *items)
@@ -4585,7 +4652,7 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window
     base_control->is_default_enter = false;
     base_control->is_default_esc = false;
     base_control->captures_lr_arrows = false;
-    base_control->special_focus = false;
+    base_control->special_focus = true;
 
     /* control */
     control->header = header;
@@ -4595,11 +4662,11 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateListControl(SDL_ToolkitWindowX11 *window
     control->items = items;
     control->item_area = None;
 
-	/* selection */ 
-	control->selected_items = NULL;
-	control->allow_multi_select = false;
-	control->modifiers = false;
-	
+    /* selection */
+    control->selected_items = NULL;
+    control->allow_multi_select = false;
+    control->modifiers = false;
+
     /* colors */
     control->xcolor_green.flags = 0;
     control->xcolor_green.red = 0;
@@ -4651,14 +4718,15 @@ void X11Toolkit_UpdateListControlAreaOffsets(SDL_ToolkitControlX11 *base_control
     X11Toolkit_DrawWindow(base_control->window);
 }
 
-static void X11Toolkit_CalculateMenuBarControl(SDL_ToolkitControlX11 *base_control) {
+static void X11Toolkit_CalculateMenuBarControl(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitMenuBarControlX11 *control;
     SDL_ListNode *cursor;
     int prev_x;
     int prev_w;
     int max_h;
     int i;
-   
+
     i = prev_w = prev_x = max_h = 0;
     base_control->rect.x = base_control->rect.y = 0;
     control = (SDL_ToolkitMenuBarControlX11 *)base_control;
@@ -4667,7 +4735,7 @@ static void X11Toolkit_CalculateMenuBarControl(SDL_ToolkitControlX11 *base_contr
         SDL_ToolkitMenuItemX11 *item;
         int ascent;
         int descent;
-        
+
         item = cursor->entry;
         item->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
         item->utf8_sz = SDL_strlen(item->utf8);
@@ -4679,13 +4747,13 @@ static void X11Toolkit_CalculateMenuBarControl(SDL_ToolkitControlX11 *base_contr
             item->utf8_rect.x = prev_x + prev_w + SDL_TOOLKIT_X11_ELEMENT_PADDING_4 * base_control->window->iscale;
         } else {
             item->utf8_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
-        }        
-        
+        }
+
         item->hover_rect.w = item->utf8_rect.w + SDL_TOOLKIT_X11_ELEMENT_PADDING_5 * 2 * base_control->window->iscale;
-        item->hover_rect.h = item->utf8_rect.h + SDL_TOOLKIT_X11_ELEMENT_PADDING_5 * 2 * base_control->window->iscale ;
+        item->hover_rect.h = item->utf8_rect.h + SDL_TOOLKIT_X11_ELEMENT_PADDING_5 * 2 * base_control->window->iscale;
         item->hover_rect.x = item->utf8_rect.x - SDL_TOOLKIT_X11_ELEMENT_PADDING_5 * base_control->window->iscale;
         item->hover_rect.y = item->utf8_rect.y - ascent - SDL_TOOLKIT_X11_ELEMENT_PADDING_5 * base_control->window->iscale;
-        
+
         i++;
         cursor = cursor->next;
         prev_x = item->utf8_rect.x;
@@ -4695,46 +4763,47 @@ static void X11Toolkit_CalculateMenuBarControl(SDL_ToolkitControlX11 *base_contr
     base_control->rect.h = max_h + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
 }
 
-static void X11Toolkit_DrawMenuBarControl(SDL_ToolkitControlX11 *base_control) {
+static void X11Toolkit_DrawMenuBarControl(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitMenuBarControlX11 *control;
     SDL_ListNode *cursor;
-    
+
     control = (SDL_ToolkitMenuBarControlX11 *)base_control;
-    
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y,
-                                   base_control->rect.w, 1 *base_control->window->iscale);
-                                   
+                       base_control->rect.x, base_control->rect.y,
+                       base_control->rect.w, 1 * base_control->window->iscale);
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y + 1 *base_control->window->iscale,
-                                   base_control->rect.w, 1 *base_control->window->iscale);
-                                   
+                       base_control->rect.x, base_control->rect.y + 1 * base_control->window->iscale,
+                       base_control->rect.w, 1 * base_control->window->iscale);
+
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y + base_control->rect.h - 1 *base_control->window->iscale,
-                                   base_control->rect.w, 1 *base_control->window->iscale);
-                                   
+                       base_control->rect.x, base_control->rect.y + base_control->rect.h - 1 * base_control->window->iscale,
+                       base_control->rect.w, 1 * base_control->window->iscale);
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y + base_control->rect.h - 2 *base_control->window->iscale,
-                                   base_control->rect.w, 1 *base_control->window->iscale);
-                                   
+                       base_control->rect.x, base_control->rect.y + base_control->rect.h - 2 * base_control->window->iscale,
+                       base_control->rect.w, 1 * base_control->window->iscale);
+
     cursor = control->menu_items;
     while (cursor) {
         SDL_ToolkitMenuItemX11 *item;
-        
+
         item = cursor->entry;
-        
+
         if (item->state == SDL_TOOLKIT_CONTROL_STATE_X11_HOVER) {
             X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_SELECTED].pixel);
-        } else if (item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED || item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED_HELD) {
+        } else if (item->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED || item->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
             X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_pressed.pixel);
         }
         if (item->state != SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL) {
             X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, item->hover_rect.x, item->hover_rect.y, item->hover_rect.w, item->hover_rect.h);
         }
-                                   
+
         if (item->disabled) {
             X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_disabled_text.pixel);
         } else {
@@ -4757,16 +4826,17 @@ static void X11Toolkit_DrawMenuBarControl(SDL_ToolkitControlX11 *base_control) {
     }
 }
 
-void X11Toolkit_OnMenuBarControlStateChange(SDL_ToolkitControlX11 *base_control) {
+void X11Toolkit_OnMenuBarControlStateChange(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitMenuBarControlX11 *control;
     SDL_ToolkitMenuItemX11 *item_to_open;
     SDL_ListNode *cursor;
     int x;
     int y;
-    
-    x = SDL_lroundf((base_control->window->e->xbutton.x/base_control->window->ev_scale)* base_control->window->ev_iscale);
-    y = SDL_lroundf((base_control->window->e->xbutton.y/base_control->window->ev_scale)* base_control->window->ev_iscale);
-    
+
+    x = SDL_lroundf((base_control->window->e->xbutton.x / base_control->window->ev_scale) * base_control->window->ev_iscale);
+    y = SDL_lroundf((base_control->window->e->xbutton.y / base_control->window->ev_scale) * base_control->window->ev_iscale);
+
     item_to_open = NULL;
     control = (SDL_ToolkitMenuBarControlX11 *)base_control;
     cursor = control->menu_items;
@@ -4786,21 +4856,21 @@ void X11Toolkit_OnMenuBarControlStateChange(SDL_ToolkitControlX11 *base_control)
             item_to_open->state = base_control->state;
             base_control->window->draw = true;
         }
-        
+
         cursor = cursor->next;
     }
 
     if (item_to_open) {
-        if (item_to_open->state == SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED) {
+        if (item_to_open->state == SDL_TOOLKIT_CONTROL_STATE_X11_RELEASED) {
             SDL_ToolkitWindowX11 *window;
             SDL_ToolkitControlX11 *menu_control;
             Window dummy;
-            
+
             X11_XTranslateCoordinates(base_control->window->display, base_control->window->window, RootWindow(base_control->window->display, base_control->window->screen), item_to_open->hover_rect.x, item_to_open->hover_rect.y + item_to_open->hover_rect.h, &x, &y, &dummy);
             window = X11Toolkit_CreateWindowStruct(NULL, base_control->window, SDL_TOOLKIT_WINDOW_MODE_X11_MENU, base_control->window->color_hints, false);
             SDL_ListAdd(&base_control->window->popup_windows, window);
             menu_control = X11Toolkit_CreateMenuControl(window, item_to_open->sub_menu);
-            X11Toolkit_CreateWindowRes(window, menu_control->rect.w, menu_control->rect.h, x, y,  NULL);
+            X11Toolkit_CreateWindowRes(window, menu_control->rect.w, menu_control->rect.h, x, y, NULL);
             X11Toolkit_DoWindowEventLoop(window);
             X11Toolkit_DestroyWindow(window);
             item_to_open->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
@@ -4812,18 +4882,18 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateMenuBarControl(SDL_ToolkitWindowX11 *win
 {
     SDL_ToolkitMenuBarControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
-    
+
     if (!menu_items) {
         return NULL;
-    }    
-    
+    }
+
     control = (SDL_ToolkitMenuBarControlX11 *)SDL_malloc(sizeof(SDL_ToolkitMenuBarControlX11));
     base_control = (SDL_ToolkitControlX11 *)control;
     if (!control) {
         SDL_SetError("Unable to allocate menu bar control structure");
         return NULL;
     }
-    
+
     base_control->window = window;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->func_calc_size = X11Toolkit_CalculateMenuBarControl;
@@ -4834,20 +4904,21 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateMenuBarControl(SDL_ToolkitWindowX11 *win
     base_control->func_process_event = NULL;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->selected = false;
-    base_control->dynamic = true;    
-    base_control->is_default_enter = false;  
-    base_control->is_default_esc = false;  
+    base_control->dynamic = true;
+    base_control->is_default_enter = false;
+    base_control->is_default_esc = false;
     base_control->do_size = true;
     base_control->captures_lr_arrows = false;
     base_control->special_focus = false;
     control->menu_items = menu_items;
     X11Toolkit_CalculateMenuBarControl(base_control);
-	base_control->do_size = false;
-    X11Toolkit_AddControlToWindow(window, base_control);     
+    base_control->do_size = false;
+    X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
 }
 
-static void X11Toolkit_CalculateMenuControl(SDL_ToolkitControlX11 *base_control) {
+static void X11Toolkit_CalculateMenuControl(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitMenuControlX11 *control;
     SDL_ListNode *cursor;
     int max_w;
@@ -4856,21 +4927,21 @@ static void X11Toolkit_CalculateMenuControl(SDL_ToolkitControlX11 *base_control)
     int prev_h;
     int ascent;
     int descent;
-    
+
     prev_h = prev_y = max_w = max_h = 0;
     base_control->rect.x = base_control->rect.y = 0;
     control = (SDL_ToolkitMenuControlX11 *)base_control;
-    
+
     cursor = control->menu_items;
     while (cursor) {
-        SDL_ToolkitMenuItemX11 *item;        
+        SDL_ToolkitMenuItemX11 *item;
         item = cursor->entry;
-		item->utf8_sz = SDL_strlen(item->utf8);
+        item->utf8_sz = SDL_strlen(item->utf8);
         X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_sz, &item->utf8_rect.w, &item->utf8_rect.h, &ascent, &descent, NULL);
         if (item->sub_menu) {
             int w;
             int h;
-            
+
             X11Toolkit_GetTextWidthHeight(base_control->window, ">", 1, &w, &h, &ascent, &descent, NULL);
             item->utf8_rect.w += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale + w;
             item->utf8_rect.h = SDL_max(item->utf8_rect.h, h);
@@ -4878,94 +4949,95 @@ static void X11Toolkit_CalculateMenuControl(SDL_ToolkitControlX11 *base_control)
         if (item->checkbox) {
             item->utf8_rect.w += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale + item->utf8_rect.h;
         }
-        
+
         max_w = SDL_max(max_w, item->utf8_rect.w);
         max_h = SDL_max(max_h, item->utf8_rect.h);
         cursor = cursor->next;
     }
-    
+
     cursor = control->menu_items;
     while (cursor) {
         SDL_ToolkitMenuItemX11 *item;
-        
+
         item = cursor->entry;
-        
+
         X11Toolkit_GetTextWidthHeight(base_control->window, item->utf8, item->utf8_sz, &item->utf8_rect.w, &item->utf8_rect.h, &ascent, &descent, NULL);
         item->hover_rect.w = max_w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
         item->hover_rect.h = max_h + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
         item->utf8_rect.x = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale;
         item->hover_rect.y = prev_y + prev_h;
-        item->utf8_rect.y = item->hover_rect.y + ascent + (item->hover_rect.h - item->utf8_rect.h)/2;
+        item->utf8_rect.y = item->hover_rect.y + ascent + (item->hover_rect.h - item->utf8_rect.h) / 2;
         item->hover_rect.x = 0;
-        
+
         if (item->sub_menu) {
             int w;
             int h;
-            
+
             X11Toolkit_GetTextWidthHeight(base_control->window, ">", 1, &w, &h, &ascent, &descent, NULL);
             item->arrow_x = item->hover_rect.w - (SDL_TOOLKIT_X11_ELEMENT_PADDING_2 * base_control->window->iscale + w);
-            item->arrow_y = item->hover_rect.y + ascent + (item->hover_rect.h - h)/2;
+            item->arrow_y = item->hover_rect.y + ascent + (item->hover_rect.h - h) / 2;
         }
         if (item->checkbox) {
             item->check_rect.x = item->utf8_rect.x;
             item->utf8_rect.x += SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * base_control->window->iscale + item->utf8_rect.h;
             item->check_rect.w = item->utf8_rect.h;
             item->check_rect.h = item->utf8_rect.h;
-            item->check_rect.y = item->hover_rect.y + (item->hover_rect.h - item->utf8_rect.h)/2;
+            item->check_rect.y = item->hover_rect.y + (item->hover_rect.h - item->utf8_rect.h) / 2;
         }
-        
+
         prev_h = item->hover_rect.h;
         prev_y = item->hover_rect.y;
         cursor = cursor->next;
     }
-    
+
     base_control->rect.w = max_w + SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * base_control->window->iscale;
     base_control->rect.h = prev_y + prev_h;
 }
 
-static void X11Toolkit_DrawMenuControl(SDL_ToolkitControlX11 *base_control) {
+static void X11Toolkit_DrawMenuControl(SDL_ToolkitControlX11 *base_control)
+{
     SDL_ToolkitMenuControlX11 *control;
     SDL_ListNode *cursor;
-    
+
     control = (SDL_ToolkitMenuControlX11 *)base_control;
-    
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y,
-                                   base_control->rect.w, base_control->rect.h);
+                       base_control->rect.x, base_control->rect.y,
+                       base_control->rect.w, base_control->rect.h);
 
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x, base_control->rect.y,
-                                   base_control->rect.w - 1 * base_control->window->iscale, base_control->rect.h - 1 * base_control->window->iscale);
-          
+                       base_control->rect.x, base_control->rect.y,
+                       base_control->rect.w - 1 * base_control->window->iscale, base_control->rect.h - 1 * base_control->window->iscale);
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BORDER].pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x + 1 * base_control->window->iscale, base_control->rect.y + 1 * base_control->window->iscale,
-                                   base_control->rect.w - 2 * base_control->window->iscale, base_control->rect.h - 2 * base_control->window->iscale);
-           
+                       base_control->rect.x + 1 * base_control->window->iscale, base_control->rect.y + 1 * base_control->window->iscale,
+                       base_control->rect.w - 2 * base_control->window->iscale, base_control->rect.h - 2 * base_control->window->iscale);
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l1.pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x + 1 * base_control->window->iscale, base_control->rect.y + 1 * base_control->window->iscale,
-                                   base_control->rect.w - 3 * base_control->window->iscale, base_control->rect.h - 3 * base_control->window->iscale);
-           
+                       base_control->rect.x + 1 * base_control->window->iscale, base_control->rect.y + 1 * base_control->window->iscale,
+                       base_control->rect.w - 3 * base_control->window->iscale, base_control->rect.h - 3 * base_control->window->iscale);
+
     X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].pixel);
     X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                   base_control->rect.x + 2 * base_control->window->iscale, base_control->rect.y + 2 * base_control->window->iscale,
-                                   base_control->rect.w - 4 * base_control->window->iscale, base_control->rect.h - 4 * base_control->window->iscale);
-                                   
+                       base_control->rect.x + 2 * base_control->window->iscale, base_control->rect.y + 2 * base_control->window->iscale,
+                       base_control->rect.w - 4 * base_control->window->iscale, base_control->rect.h - 4 * base_control->window->iscale);
+
     cursor = control->menu_items;
     while (cursor) {
         SDL_ToolkitMenuItemX11 *item;
-        
+
         item = cursor->entry;
-        
+
         /* Draw lines between items */
         /*X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_d.pixel);
         X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
                                     item->hover_rect.x, item->hover_rect.y,
                                     item->hover_rect.w, 1 *base_control->window->iscale);
-                                   
+
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_bevel_l2.pixel);
         X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
                                     item->hover_rect.x, item->hover_rect.y + 1 *base_control->window->iscale,
@@ -4973,10 +5045,10 @@ static void X11Toolkit_DrawMenuControl(SDL_ToolkitControlX11 *base_control) {
         if (item->checkbox) {
             X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_light_control_bg.pixel);
             X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
-                                        base_control->rect.x + item->check_rect.x, base_control->rect.y + item->check_rect.y,
-                                        item->check_rect.w, item->check_rect.h);
+                               base_control->rect.x + item->check_rect.x, base_control->rect.y + item->check_rect.y,
+                               item->check_rect.w, item->check_rect.h);
         }
-        
+
         if (item->disabled) {
             X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor_disabled_text.pixel);
         } else {
@@ -5003,9 +5075,8 @@ static void X11Toolkit_DrawMenuControl(SDL_ToolkitControlX11 *base_control) {
             if (item->sub_menu) {
                 X11_XDrawString(base_control->window->display, base_control->window->drawable, base_control->window->ctx,
                                 base_control->rect.x + item->arrow_x, base_control->rect.y + item->arrow_y,
-                                ">", 1);        
+                                ">", 1);
             }
-
         }
         cursor = cursor->next;
     }
@@ -5015,18 +5086,18 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateMenuControl(SDL_ToolkitWindowX11 *window
 {
     SDL_ToolkitMenuControlX11 *control;
     SDL_ToolkitControlX11 *base_control;
-    
+
     if (!menu_items) {
         return NULL;
-    }    
-    
+    }
+
     control = (SDL_ToolkitMenuControlX11 *)SDL_malloc(sizeof(SDL_ToolkitMenuControlX11));
     base_control = (SDL_ToolkitControlX11 *)control;
     if (!control) {
         SDL_SetError("Unable to allocate menu control structure");
         return NULL;
     }
-    
+
     base_control->window = window;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->func_calc_size = X11Toolkit_CalculateMenuControl;
@@ -5037,16 +5108,16 @@ SDL_ToolkitControlX11 *X11Toolkit_CreateMenuControl(SDL_ToolkitWindowX11 *window
     base_control->func_process_event = NULL;
     base_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
     base_control->selected = false;
-    base_control->dynamic = true;    
-    base_control->is_default_enter = false;  
-    base_control->is_default_esc = false;  
+    base_control->dynamic = true;
+    base_control->is_default_enter = false;
+    base_control->is_default_esc = false;
     base_control->do_size = true;
     base_control->captures_lr_arrows = false;
     base_control->special_focus = false;
-	control->menu_items = menu_items;  
+    control->menu_items = menu_items;
     X11Toolkit_CalculateMenuControl(base_control);
- 	base_control->do_size = false;
-    X11Toolkit_AddControlToWindow(window, base_control);     
+    base_control->do_size = false;
+    X11Toolkit_AddControlToWindow(window, base_control);
     return base_control;
 }
 
