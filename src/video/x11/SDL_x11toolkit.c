@@ -1536,6 +1536,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
 
             data->previous_control = data->fiddled_control;
             data->fiddled_control = X11Toolkit_GetControlMouseIsOn(data, (SDL_Point){ SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale) });
+
             if (data->previous_control) {
                 data->previous_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
                 if (data->previous_control->func_on_state_change) {
@@ -1543,6 +1544,7 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
                 }
                 data->draw = true;
             }
+
             if (data->fiddled_control) {
                 if (data->fiddled_control->dynamic) {
                     data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_HOVER;
@@ -1561,11 +1563,18 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
     {
         SDL_ToolkitControlX11 *control;
 
-        data->previous_control = data->fiddled_control;
-
         if (e->xbutton.button != Button1) {
             break;
         }
+
+        if (data->previous_control) {
+            data->previous_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
+            if (data->previous_control->func_on_state_change) {
+                data->previous_control->func_on_state_change(data->previous_control);
+            }
+        }
+
+        data->previous_control = data->fiddled_control;
 
         data->draw = true;
         control = X11Toolkit_GetControlMouseIsOn(data, (SDL_Point){ SDL_lroundf((e->xbutton.x / data->ev_scale) * data->ev_iscale), SDL_lroundf((e->xbutton.y / data->ev_scale) * data->ev_iscale) });
@@ -1592,14 +1601,6 @@ void X11Toolkit_ProcessWindowEvents(SDL_ToolkitWindowX11 *data, XEvent *e)
             data->fiddled_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_PRESSED;
             if (data->fiddled_control->func_on_state_change) {
                 data->fiddled_control->func_on_state_change(data->fiddled_control);
-            }
-            data->draw = true;
-        }
-
-        if (data->previous_control) {
-            data->previous_control->state = SDL_TOOLKIT_CONTROL_STATE_X11_NORMAL;
-            if (data->previous_control->func_on_state_change) {
-                data->previous_control->func_on_state_change(data->previous_control);
             }
             data->draw = true;
         }
@@ -4368,6 +4369,7 @@ static void X11Toolkit_DrawListControl(SDL_ToolkitControlX11 *base_control)
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND].pixel);
         X11_XFillRectangle(base_control->window->display, base_control->window->drawable, base_control->window->ctx, base_control->rect.x + control->header_rect.x + 2 * base_control->window->iscale, base_control->rect.y + control->header_rect.y + 2 * base_control->window->iscale, control->header_rect.w - 4 * base_control->window->iscale, control->header_rect.h - 4 * base_control->window->iscale);
         X11_XSetForeground(base_control->window->display, base_control->window->ctx, base_control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
+
 #ifdef X_HAVE_UTF8_STRING
         if (base_control->window->utf8) {
             X11_Xutf8DrawString(base_control->window->display, base_control->window->drawable, base_control->window->font_set, base_control->window->ctx, base_control->rect.x + control->header_text_rect.x, base_control->rect.y + control->header_text_rect.y, control->header, control->header_sz);
