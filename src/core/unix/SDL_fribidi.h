@@ -53,6 +53,7 @@ typedef struct SDL_FriBidi {
 
 extern SDL_FriBidi *SDL_FriBidi_Create(void);
 extern char *SDL_FriBidi_Process(SDL_FriBidi *fribidi, char *utf8, ssize_t utf8_len, bool shaping, FriBidiParType *out_par_type);
+extern FriBidiParType SDL_FriBidi_GetDirection(SDL_FriBidi *fribidi, char *utf8, ssize_t utf8_len);
 extern void SDL_FriBidi_Destroy(SDL_FriBidi *fribidi);
 
 #endif // HAVE_FRIBIDI_H

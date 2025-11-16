@@ -35,6 +35,9 @@
 #ifdef HAVE_LIBTHAI_H
 #include "../../core/unix/SDL_libthai.h"
 #endif
+#ifdef HAVE_LIBFCFT_H
+#include "../../video/SDL_fcft.h"
+#endif
 
 #ifdef SDL_VIDEO_DRIVER_X11
 
@@ -140,7 +143,11 @@ typedef struct SDL_ToolkitWindowX11
     XFontStruct *font_struct; // Latin1 (ASCII) fallback.
     SDL_ToolkitThaiEncodingX11 thai_encoding;
     SDL_ToolkitThaiFontX11 thai_font;
-    
+#ifdef HAVE_LIBFCFT_H
+	SDL_Fcft *fcft;
+	struct fcft_font *font;
+#endif
+
     /* Control colors */
     const SDL_MessageBoxColor *color_hints;
     XColor xcolor[SDL_MESSAGEBOX_COLOR_COUNT];

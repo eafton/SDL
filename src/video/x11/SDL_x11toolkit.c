@@ -58,7 +58,7 @@ typedef struct SDL_ToolkitThaiOverlayX11
 } SDL_ToolkitThaiOverlayX11;
 #endif
 
-typedef struct SDL_ToolkitTextElementX11
+typedef struct SDL_ToolkitTextElementCoreX11
 {
     SDL_ToolkitTextTypeX11 type;
     char *str;
@@ -69,7 +69,18 @@ typedef struct SDL_ToolkitTextElementX11
 #ifdef HAVE_LIBTHAI_H
     SDL_ListNode *thai_overlays;
 #endif
-} SDL_ToolkitTextElementX11;
+} SDL_ToolkitTextElementCoreX11;
+
+#ifdef HAVE_LIBFCFT_H
+typedef struct SDL_ToolkitTextElementFcftX11
+{
+    char *str;
+    size_t sz;
+    SDL_Rect rect;
+    SDL_Surface *surface;
+    Pixmap pixmap;
+} SDL_ToolkitTextElementFcftX11;
+#endif
 
 typedef struct SDL_ToolkitIconControlX11
 {
@@ -125,16 +136,6 @@ typedef struct SDL_ToolkitLabelControlX11
 {
     SDL_ToolkitControlX11 parent;
 
- /*   char **lines;
-    int *y;
-    size_t *szs;
-    size_t sz;
-#ifdef HAVE_FRIBIDI_H
-    int *x;
-    int *w;
-    bool *free_lines;
-    FriBidiParType *par_types;
-#endif*/
     SDL_ToolkitLabelControlLineX11 *lines;
     size_t sz;
 } SDL_ToolkitLabelControlX11;
@@ -291,7 +292,7 @@ static void X11Toolkit_InitWindowPixmap(SDL_ToolkitWindowX11 *data) {
     }
 }
 
-static void X11Toolkit_InitWindowFonts(SDL_ToolkitWindowX11 *window)
+static void X11Toolkit_InitWindowFontsCore(SDL_ToolkitWindowX11 *window)
 {    
     window->thai_encoding = SDL_TOOLKIT_THAI_ENCODING_X11_NONE;
     window->thai_font = SDL_TOOLKIT_THAI_FONT_X11_CELL;
@@ -412,9 +413,30 @@ static void X11Toolkit_InitWindowFonts(SDL_ToolkitWindowX11 *window)
             }
         }
     }
-    
-    
 }
+
+static void X11Toolkit_InitWindowFonts(SDL_ToolkitWindowX11 *window)
+{    
+#ifdef HAVE_LIBFCFT_H
+	window->fcft = SDL_Fcft_Create();
+	if (window->fcft) {
+		char *name;
+		char *attr;
+	
+		name = "sans";	
+		SDL_asprintf(&attr, "size=%d", (G_TOOLKITFONT_SIZE / 10) * window->iscale);
+		window->font = window->fcft->from_name(1, (const char **)&name, attr);
+		SDL_free(attr);
+		window->font_set = NULL;
+		window->font_struct = NULL;
+		SDL_Fcft_Render(window->fcft, window->font, NULL, NULL, "Hello world!");
+	} else 
+#endif
+	{
+		X11Toolkit_InitWindowFontsCore(window);
+	}
+}
+
 
 static void X11Toolkit_SettingsNotify(const char *name, XSettingsAction action, XSettingsSetting *setting, void *data)
 {
@@ -582,9 +604,9 @@ static void X11Toolkit_GetTextWidthHeight(SDL_ToolkitWindowX11 *data, const char
 }
 
 #ifdef HAVE_FRIBIDI_H
-SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt, size_t sz, FriBidiParType *par)
+SDL_ListNode *X11Toolkit_MakeTextElementsCore(SDL_ToolkitWindowX11 *data, char *txt, size_t sz, FriBidiParType *par)
 #else
-SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt, size_t sz)
+SDL_ListNode *X11Toolkit_MakeTextElementsCore(SDL_ToolkitWindowX11 *data, char *txt, size_t sz)
 #endif
 {
     SDL_ListNode *list;
@@ -628,9 +650,9 @@ SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt,
         cp = SDL_StepUTF8((const char **)&str, &sz);
         cond = (0xe00 <= cp && cp <= 0xe7f) ? true : false;
         if (cp == 0 || cond == (thai ? false : true)) {
-            SDL_ToolkitTextElementX11 *element;
+            SDL_ToolkitTextElementCoreX11 *element;
             
-            element = SDL_malloc(sizeof(SDL_ToolkitTextElementX11));
+            element = SDL_malloc(sizeof(SDL_ToolkitTextElementCoreX11));
             if (thai) {
                 element->type = SDL_TOOLKIT_TEXT_TYPE_X11_THAI;
             } else {
@@ -668,16 +690,16 @@ SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt,
     return list;
 }
 
-void X11Toolkit_ShapeTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list)
+void X11Toolkit_ShapeTextElementsCore(SDL_ToolkitWindowX11 *data, SDL_ListNode *list)
 {
     SDL_ListNode *cursor;
-    SDL_ToolkitTextElementX11 *prev;
+    SDL_ToolkitTextElementCoreX11 *prev;
     int temp;
     
     /* Shape and calculate bounding box */
     cursor = list;
     while (cursor) {
-        SDL_ToolkitTextElementX11 *element;
+        SDL_ToolkitTextElementCoreX11 *element;
         
         element = cursor->entry;
 #ifdef HAVE_LIBTHAI_H
@@ -763,7 +785,7 @@ void X11Toolkit_ShapeTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list
     prev = NULL;
     cursor = list;
     while (cursor) {
-        SDL_ToolkitTextElementX11 *element;
+        SDL_ToolkitTextElementCoreX11 *element;
         
         element = cursor->entry;        
         if (prev) {
@@ -778,14 +800,16 @@ void X11Toolkit_ShapeTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list
 }
 
 
-void X11Toolkit_DrawTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list, int x, int y)
+void X11Toolkit_DrawTextElementsCore(SDL_ToolkitWindowX11 *data, SDL_ListNode *list, int x, int y, XColor *color)
 {
     SDL_ListNode *cursor;
+    
+    X11_XSetForeground(data->display, data->ctx, color->pixel);
     
     cursor = list;
     
     while (cursor) {
-        SDL_ToolkitTextElementX11 *element;
+        SDL_ToolkitTextElementCoreX11 *element;
         
         element = cursor->entry;
         if (element->type == SDL_TOOLKIT_TEXT_TYPE_X11_THAI) {
@@ -846,7 +870,7 @@ void X11Toolkit_DrawTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list,
     }
 }
 
-int X11Toolkit_GetTextElementsRect(SDL_ListNode *list, SDL_Rect *out)
+int X11Toolkit_GetTextElementsRectCore(SDL_ListNode *list, SDL_Rect *out)
 {
     SDL_ListNode *cursor;
     int ret;
@@ -856,7 +880,7 @@ int X11Toolkit_GetTextElementsRect(SDL_ListNode *list, SDL_Rect *out)
     out->w = out->h = 0;
     cursor = list;
     while (cursor) {
-        SDL_ToolkitTextElementX11 *element;
+        SDL_ToolkitTextElementCoreX11 *element;
         
         element = cursor->entry;
         
@@ -870,13 +894,13 @@ int X11Toolkit_GetTextElementsRect(SDL_ListNode *list, SDL_Rect *out)
     return ret;
 }
 
-void X11Toolkit_FreeTextElementsListContents(SDL_ListNode *list)
+void X11Toolkit_FreeTextElementsListContentsCore(SDL_ListNode *list)
 {
     SDL_ListNode *cursor;
     
     cursor = list;
     while (cursor) {
-        SDL_ToolkitTextElementX11 *element;
+        SDL_ToolkitTextElementCoreX11 *element;
 #ifdef HAVE_LIBTHAI_H
         SDL_ListNode *overlay_cursor;
 #endif
@@ -906,8 +930,88 @@ void X11Toolkit_FreeTextElementsListContents(SDL_ListNode *list)
     }
 }
 
-#define X11Toolkit_FreeTextElements(x) X11Toolkit_FreeTextElementsListContents(x); SDL_ListClear(&x)
+#ifdef HAVE_LIBFCFT_H
+
+#ifdef HAVE_FRIBIDI_H
+SDL_ListNode *X11Toolkit_MakeTextElementsFcft(SDL_ToolkitWindowX11 *data, char *txt, size_t sz, FriBidiParType *par)
+#else
+SDL_ListNode *X11Toolkit_MakeTextElementsFcft(SDL_ToolkitWindowX11 *data, char *txt, size_t sz)
+#endif
+{
+	SDL_ToolkitTextElementFcftX11 *element;
+    SDL_ListNode *list;
+	
+	list = NULL;
+	element = SDL_malloc(sizeof(SDL_ToolkitTextElementFcftX11));
+	element->str = txt;
+	element->sz = sz;
+	element->pixmap = None;
+	SDL_ListAdd(&list, element);
+	
+#ifdef HAVE_FRIBIDI_H
+	if (par) {
+		*par = SDL_FriBidi_GetDirection(data->fribidi, txt, sz);
+	}
+#endif
+
+	return list;
+}
+
+#endif
+
+void X11Toolkit_FreeTextElementsListContents(SDL_ToolkitWindowX11 *data, SDL_ListNode *list)
+{
+#ifdef HAVE_LIBFCFT_H
+	if (data->fcft) {
+
+	} else 
+#endif 
+	{	
+		X11Toolkit_FreeTextElementsListContentsCore(list);
+	}
+}
+
+#define X11Toolkit_FreeTextElements(d, x) X11Toolkit_FreeTextElementsListContents(d, x); SDL_ListClear(&x)
  
+#ifdef HAVE_FRIBIDI_H
+SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt, size_t sz, FriBidiParType *par)
+#else
+SDL_ListNode *X11Toolkit_MakeTextElements(SDL_ToolkitWindowX11 *data, char *txt, size_t sz)
+#endif
+{
+#ifdef HAVE_LIBFCFT_H
+	if (data->fcft) {
+#ifdef HAVE_FRIBIDI_H
+		return X11Toolkit_MakeTextElementsFcft(data, txt, sz, par);
+#else
+		return X11Toolkit_MakeTextElementsFcft(data, txt, sz);
+#endif		
+	} else 
+#endif 
+	{	
+#ifdef HAVE_FRIBIDI_H
+		return X11Toolkit_MakeTextElementsCore(data, txt, sz, par);
+#else
+		return X11Toolkit_MakeTextElementsCore(data, txt, sz);
+#endif		
+	}
+}
+
+int X11Toolkit_GetTextElementsRect(SDL_ToolkitWindowX11 *data, SDL_ListNode *list, SDL_Rect *out)
+{
+    //return X11Toolkit_GetTextElementsRectCore(list, out);
+}
+
+void X11Toolkit_DrawTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list, int x, int y, XColor *color)
+{
+	//X11Toolkit_DrawTextElementsCore(data, list, x ,y, color);
+}
+
+void X11Toolkit_ShapeTextElements(SDL_ToolkitWindowX11 *data, SDL_ListNode *list)
+{
+	//X11Toolkit_ShapeTextElementsCore(data, list);
+}
+
 static bool X11Toolkit_ShouldFlipUI(void) 
 {
     SDL_Locale **current_locales;
@@ -1470,7 +1574,7 @@ bool X11Toolkit_CreateWindowRes(SDL_ToolkitWindowX11 *data, int w, int h, int cx
     SDL_zero(ctx_vals);
     ctx_vals.foreground = data->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].pixel;
     ctx_vals.background = data->xcolor[SDL_MESSAGEBOX_COLOR_BACKGROUND].pixel;
-    if (!data->utf8) {
+    if (!data->utf8 && data->font_struct) {
         gcflags |= GCFont;
         ctx_vals.font = data->font_struct->fid;
     }
@@ -1870,7 +1974,7 @@ static void X11Toolkit_DrawIconControl(SDL_ToolkitControlX11 *control) {
     }
     X11_XSetFont(control->window->display, control->window->ctx, icon_control->icon_char_font->fid);
     X11_XDrawString(control->window->display, control->window->drawable, control->window->ctx, control->rect.x + icon_control->icon_char_x, control->rect.y + icon_control->icon_char_y, &icon_control->icon_char, 1);
-    if (!control->window->utf8) {
+    if (!control->window->utf8 && control->window->font_struct) {
         X11_XSetFont(control->window->display, control->window->ctx, control->window->font_struct->fid);
     }
 
@@ -2052,7 +2156,7 @@ static void X11Toolkit_CalculateButtonControl(SDL_ToolkitControlX11 *control) {
     SDL_ToolkitButtonControlX11 *button_control;
 
     button_control = (SDL_ToolkitButtonControlX11 *)control;
-    X11Toolkit_GetTextElementsRect(button_control->text, &button_control->text_rect);
+    X11Toolkit_GetTextElementsRect(control->window, button_control->text, &button_control->text_rect);
     if (control->do_size) {
         control->rect.w = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.w;
         control->rect.h = SDL_TOOLKIT_X11_ELEMENT_PADDING_3 * 2 * control->window->iscale + button_control->text_rect.h;
@@ -2148,8 +2252,7 @@ static void X11Toolkit_DrawButtonControl(SDL_ToolkitControlX11 *control) {
             }
         }
 
-    X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
-    X11Toolkit_DrawTextElements(control->window, button_control->text, control->rect.x + button_control->text_rect.x, control->rect.y + button_control->text_rect.y);
+    X11Toolkit_DrawTextElements(control->window, button_control->text, control->rect.x + button_control->text_rect.x, control->rect.y + button_control->text_rect.y, &control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT]);
 }
 
 static void X11Toolkit_OnButtonControlStateChange(SDL_ToolkitControlX11 *control) {
@@ -2166,7 +2269,7 @@ static void X11Toolkit_DestroyButtonControl(SDL_ToolkitControlX11 *control) {
 
     button_control = (SDL_ToolkitButtonControlX11 *)control;
 
-    X11Toolkit_FreeTextElements(button_control->text);
+    X11Toolkit_FreeTextElements(control->window, button_control->text);
     
     SDL_free(control);
 }
@@ -2343,9 +2446,8 @@ static void X11Toolkit_DrawLabelControl(SDL_ToolkitControlX11 *control) {
     int i;
 
     label_control = (SDL_ToolkitLabelControlX11 *)control;
-    X11_XSetForeground(control->window->display, control->window->ctx, control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT].pixel);
     for (i = 0; i < label_control->sz; i++) {
-        X11Toolkit_DrawTextElements(control->window, label_control->lines[i].text, control->rect.x + label_control->lines[i].rect.x, control->rect.y + label_control->lines[i].rect.y);
+        X11Toolkit_DrawTextElements(control->window, label_control->lines[i].text, control->rect.x + label_control->lines[i].rect.x, control->rect.y + label_control->lines[i].rect.y, &control->window->xcolor[SDL_MESSAGEBOX_COLOR_TEXT]);
     }
 }
 
@@ -2355,7 +2457,7 @@ static void X11Toolkit_DestroyLabelControl(SDL_ToolkitControlX11 *control) {
 
     label_control = (SDL_ToolkitLabelControlX11 *)control;
     for (i = 0; i < label_control->sz; i++) {
-        X11Toolkit_FreeTextElements(label_control->lines[i].text);
+        X11Toolkit_FreeTextElements(control->window, label_control->lines[i].text);
     }
     SDL_free(label_control->lines);
     SDL_free(label_control);
@@ -2375,7 +2477,7 @@ static void X11Toolkit_CalculateLabelControl(SDL_ToolkitControlX11 *base_control
     for (i = 0; i < control->sz; i++) {
         int font_h;
         
-        font_h = X11Toolkit_GetTextElementsRect(control->lines[i].text, &control->lines[i].rect);
+        font_h = X11Toolkit_GetTextElementsRect(base_control->window, control->lines[i].text, &control->lines[i].rect);
         
         if (base_control->do_size) {
             base_control->rect.w = SDL_max(base_control->rect.w, control->lines[i].rect.w);

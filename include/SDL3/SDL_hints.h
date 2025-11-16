@@ -587,6 +587,22 @@ extern "C" {
 #define SDL_HINT_AUTO_UPDATE_SENSORS "SDL_AUTO_UPDATE_SENSORS"
 
 /**
+ * A variable controlling if SDL is allowed to use the fcft library.
+ *
+ * The fcft library is used over other font rendering systems where it is available.
+ * 
+ * The variable can be set to the following values:
+ *
+ * - "0": Usage of the fcft library is disabled.
+ * - "1": Usage of the fcft library is enabled. (default)
+ *
+ * This hint should be set before SDL is initialized.
+ *
+ * \since This hint is available since SDL 3.4.0.
+ */
+#define SDL_HINT_ALLOW_FCFT "SDL_ALLOW_FCFT"
+
+/**
  * Prevent SDL from using version 4 of the bitmap header when saving BMPs.
  *
  * The bitmap header version 4 is required for proper alpha channel support

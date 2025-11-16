@@ -75,6 +75,37 @@ SDL_FriBidi *SDL_FriBidi_Create(void)
     return fribidi;
 }
 
+FriBidiParType SDL_FriBidi_GetDirection(SDL_FriBidi *fribidi, char *utf8, ssize_t utf8_len) 
+{
+    FriBidiChar *str;
+    FriBidiCharType *types;
+    FriBidiStrIndex len;
+	FriBidiParType ret;
+
+	/* Error check */
+	if (!fribidi || !utf8) {
+		return FRIBIDI_PAR_LTR;
+	}
+	
+    /* Convert */
+    if (utf8_len < 0) {
+        utf8_len = SDL_strlen(utf8);
+    }
+    str = SDL_calloc(SDL_utf8strnlen(utf8, utf8_len), sizeof(FriBidiChar));
+    len = fribidi->charset_to_unicode(FRIBIDI_CHAR_SET_UTF8, utf8, utf8_len, str);
+
+	/* Get direction */
+    types = SDL_calloc(len + 1, sizeof(FriBidiCharType));
+    fribidi->get_bidi_types(str, len, types);
+    ret = fribidi->get_par_direction(types, len);
+
+	/* Cleanup */
+	SDL_free(str);
+	SDL_free(types);
+	
+	return ret;
+}
+
 char *SDL_FriBidi_Process(SDL_FriBidi *fribidi, char *utf8, ssize_t utf8_len, bool shaping, FriBidiParType *out_par_type)
 {
     FriBidiCharType *types;
